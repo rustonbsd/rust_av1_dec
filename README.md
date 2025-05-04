@@ -1,6 +1,7 @@
 # AV1 Decoder Implementation Guide (Rust)
 
-This document outlines the steps required to implement an AV1 decoder in Rust, following the AV1 Bitstream & Decoding Process Specification (Version 1.0.0 with Errata 1).
+This document was created using an llm with the av1 codecs spec in context (gemini 2.5 pro was used) and will be updated form now on by me a real human person. 
+Spec File: [https://aomediacodec.github.io/av1-spec/av1-spec.pdf](https://aomediacodec.github.io/av1-spec/av1-spec.pdf)
 
 **Approach:**
 

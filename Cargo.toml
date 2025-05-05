@@ -1,0 +1,8 @@
+[package]
+name = "rust_av1_dec"
+version = "0.1.0"
+edition = "2024"
+authors = ["Zacharias Böhler <rustonbsd@mailfence.com>"]
+description = "pure rust av1 decoder project"
+
+[dependencies]

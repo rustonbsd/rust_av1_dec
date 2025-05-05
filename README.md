@@ -16,11 +16,12 @@ Spec File: [https://aomediacodec.github.io/av1-spec/av1-spec.pdf](https://aomedi
 
 Goal: Set up the Rust project, basic data structures, and utilities.
 
-*   [ ] **Project Initialization:**
+*   [x] **Project Initialization:**
     *   Description: Create a new Rust library or binary project using Cargo.
     *   `cargo new av1_decoder --lib` (or `--bin`)
 *   [ ] **Bitstream Reader Implementation:**
     *   Description: Create a robust way to read bits from a byte slice or reader. Needs to handle reading single bits, `n` bits, potential byte alignment, and track position. Consider using a crate like `bitstream-io` or implementing a custom one.
+    * first try: custom stream implementation (takes a stream and reads bytes and handles bit reads internally via a cursor and a read buffer for byte alignment)
     *   Refs: General programming task.
 *   [ ] **Error Handling:**
     *   Description: Define a custom error enum (`DecodeError`?) to handle parsing errors, invalid bitstream states, unsupported features, etc. Use `Result<T, DecodeError>` throughout the parsing logic.

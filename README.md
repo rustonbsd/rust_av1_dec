@@ -7,8 +7,6 @@ Spec File: [https://aomediacodec.github.io/av1-spec/av1-spec.pdf](https://aomedi
 
 *   **Iterative:** Start with the basics (parsing, I-frames) and incrementally add features (inter-frames, filters, advanced tools).
 *   **Spec-Driven:** Refer heavily to the official AV1 specification document. Section numbers are provided below.
-*   **Reference:** Utilize the `libaom` reference implementation for comparison and debugging.
-*   **Testing:** Test each component thoroughly as it's developed.
 
 ---
 

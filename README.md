@@ -2,6 +2,7 @@
 
 This document was created using an llm with the av1 codecs spec in context (gemini 2.5 pro was used) and will be updated form now on by me a real human person. 
 Spec File: [https://aomediacodec.github.io/av1-spec/av1-spec.pdf](https://aomediacodec.github.io/av1-spec/av1-spec.pdf)
+Impl Spec: [https://aomedia.org/docs/AV1_ToolDescription_v11-clean.pdf](https://aomedia.org/docs/AV1_ToolDescription_v11-clean.pdf)
 
 **Approach:**
 

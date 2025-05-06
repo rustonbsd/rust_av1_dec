@@ -6,3 +6,4 @@ authors = ["Zacharias Böhler <rustonbsd@mailfence.com>"]
 description = "pure rust av1 decoder project"
 
 [dependencies]
+bitstream-io ={ version = "4.0.0" }

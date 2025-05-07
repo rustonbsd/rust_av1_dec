@@ -2,6 +2,8 @@ use bitstream_io::FromBitStream;
 
 use crate::{consts::OBU_TYPE, leb_128};
 
+use super::OBU_Sequence_Header;
+
 /* OBU syntax
 open_bitstream_unit( sz ) {	Type
     obu_header()
@@ -93,56 +95,7 @@ pub struct OBU_Extension_Header {
 }
 
 impl OBU {
-    /* OBU syntax
-    open_bitstream_unit( sz ) {	Type
-        obu_header()
-        if ( obu_has_size_field ) {
-            obu_size	leb128()
-        } else {
-            obu_size = sz - 1 - obu_extension_flag
-        }
-        startPosition = get_position( )
-        if ( obu_type != OBU_SEQUENCE_HEADER &&
-             obu_type != OBU_TEMPORAL_DELIMITER &&
-             OperatingPointIdc != 0 &&
-             obu_extension_flag == 1 )
-        {
-            inTemporalLayer = (OperatingPointIdc >> temporal_id ) & 1
-            inSpatialLayer = (OperatingPointIdc >> ( spatial_id + 8 ) ) & 1
-            if ( !inTemporalLayer || ! inSpatialLayer ) {
-                drop_obu( )
-                return
-            }
-        }
-        if ( obu_type == OBU_SEQUENCE_HEADER )
-            sequence_header_obu( )
-        else if ( obu_type == OBU_TEMPORAL_DELIMITER )
-            temporal_delimiter_obu( )
-        else if ( obu_type == OBU_FRAME_HEADER )
-            frame_header_obu( )
-        else if ( obu_type == OBU_REDUNDANT_FRAME_HEADER )
-            frame_header_obu( )
-        else if ( obu_type == OBU_TILE_GROUP )
-            tile_group_obu( obu_size )
-        else if ( obu_type == OBU_METADATA )
-            metadata_obu( )
-        else if ( obu_type == OBU_FRAME )
-            frame_obu( obu_size )
-        else if ( obu_type == OBU_TILE_LIST )
-            tile_list_obu( )
-        else if ( obu_type == OBU_PADDING )
-            padding_obu( )
-        else
-            reserved_obu( )
-        currentPosition = get_position( )
-        payloadBits = currentPosition - startPosition
-        if ( obu_size > 0 && obu_type != OBU_TILE_GROUP &&
-             obu_type != OBU_TILE_LIST &&
-             obu_type != OBU_FRAME ) {
-            trailing_bits( obu_size * 8 - payloadBits )
-        }
-    }
-    */
+    
     pub fn open_bitstream_unit<R: bitstream_io::BitRead + ?Sized>(
         r: &mut R,
         sz: u64,
@@ -153,22 +106,30 @@ impl OBU {
         } else {
             leb_128::new(sz - 1 - header.obu_extension_flag as u64)
         };
+        let operating_point_idc: u8 = 0u8;
 
-        /*
-            if ( obu_type != OBU_SEQUENCE_HEADER &&
-             obu_type != OBU_TEMPORAL_DELIMITER &&
-             OperatingPointIdc != 0 &&
-             obu_extension_flag == 1 )
+        //[!] OperatingPointIdc
+        if header.obu_type != OBU_TYPE::OBU_SEQUENCE_HEADER
+            && header.obu_type != OBU_TYPE::OBU_TEMPORAL_DELIMITER
+            && operating_point_idc != 0
+            && header.obu_extension_flag == 1
+            && header.obu_extension_header.is_some()
         {
-            inTemporalLayer = (OperatingPointIdc >> temporal_id ) & 1
-            inSpatialLayer = (OperatingPointIdc >> ( spatial_id + 8 ) ) & 1
-            if ( !inTemporalLayer || ! inSpatialLayer ) {
-                drop_obu( )
-                return
-            }
-        } */
+            let extra_headers = header.obu_extension_header.unwrap();
+            let in_temporal_layer = (operating_point_idc >> extra_headers.temporal_id) & 1u8;
+            let in_spatial_layer = (operating_point_idc >> (extra_headers.spatial_id + 8u8)) & 1u8;
 
-       if header
+            if in_temporal_layer != 0u8 || in_spatial_layer == 0u8 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Layer filtering: not in temporal or spatial layer",
+                ));
+            }
+        }
+
+        match header.obu_type {
+            OBU_TYPE::OBU_SEQUENCE_HEADER => 
+        }
         Ok(())
     }
 }
@@ -232,4 +193,52 @@ impl FromBitStream for OBU_Extension_Header {
             extension_header_reserved_3bits: r.read::<3, u8>()?,
         })
     }
+}
+
+
+impl OBU_Sequence_Header {
+    
+    // 5.5.1 General sequence header OBU syntax
+    fn sequence_header_obu<R: bitstream_io::BitRead + ?Sized>(r: &mut R) -> Result<Self, std:io::Error> 
+    where
+        Self: Sized,
+    {
+        let seq_profile = r.read::<3,u8>()?;
+        let still_picture = r.read::<1, u8>()?;
+        let reduced_still_picture_header = r.read::<1, u8>()?;
+
+        let timing_info_present_flag: u8;
+        let decoder_model_info_present_flag: u8;
+        let initial_display_delay_present_flag: u8;
+        let operating_points_cnt_minus_1: u8;
+        let seq_level_idx: Vec<u8>;
+        let seq_tier: Vec<u8>;
+        let decoder_model_present_for_this_op: Vec<u8>;
+        let initial_display_delay_present_for_this_op: Vec<u8>;
+
+        if reduced_still_picture_header == 1 {
+            timing_info_present_flag = 0;
+            decoder_model_info_present_flag = 0;
+            initial_display_delay_present_flag = 0;
+            operating_points_cnt_minus_1 = 0;
+            seq_level_idx = vec![r.read::<5, u8>()?];
+            seq_tier = vec![0];
+            decoder_model_present_for_this_op = vec![0];
+            initial_display_delay_present_for_this_op = vec![0];
+        } else {
+            timing_info_present_flag = r.read::<1,u8>()?;
+            if timing_info_present_flag == 1 {
+                decoder_model_info_present_flag = r.read::<1, u8>()?;
+                initial_display_delay_present_flag = r.read::<1, u8>()?;
+            }
+        }
+        
+
+        Ok(Self {
+            seq_profile: r.read::<3, u8>()?,
+            still_picture: r.read::<1, u8>()?,
+            reduced_still_picture_header: r.read::<1, u8>()?,
+        })
+    }
+
 }

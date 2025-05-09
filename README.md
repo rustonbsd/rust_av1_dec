@@ -18,19 +18,15 @@ Goal: Set up the Rust project, basic data structures, and utilities.
 *   [x] **Project Initialization:**
     *   Description: Create a new Rust library or binary project using Cargo.
     *   `cargo new av1_decoder --lib` (or `--bin`)
-*   [ ] **Bitstream Reader Implementation:**
+*   [x] **Bitstream Reader Implementation:**
     *   Description: Create a robust way to read bits from a byte slice or reader. Needs to handle reading single bits, `n` bits, potential byte alignment, and track position. Consider using a crate like `bitstream-io` or implementing a custom one.
-    * first try: custom stream implementation (takes a stream and reads bytes and handles bit reads internally via a cursor and a read buffer for byte alignment)
-    *   Refs: General programming task.
-*   [ ] **Error Handling:**
+    * using bitstream_io
+*   [x] **Error Handling:**
     *   Description: Define a custom error enum (`DecodeError`?) to handle parsing errors, invalid bitstream states, unsupported features, etc. Use `Result<T, DecodeError>` throughout the parsing logic.
-    *   Refs: Rust error handling best practices.
-*   [ ] **Core Data Structures:**
-    *   Description: Define basic structs for things like `FrameDimensions`, `MotionVector`, `QuantizationParams`, `SegmentationParams`, `LoopFilterParams`, etc. These will be populated during parsing.
-    *   Refs: Sections 2, 3, 5 (implicitly).
-*   [ ] **Constants Implementation:**
+    *   using native std::io::Error
+*   [-] **Constants Implementation:**
     *   Description: Define constants from the specification (e.g., `MAX_TILE_WIDTH`, `REFS_PER_FRAME`, `BLOCK_SIZES`, `MV_JOINTS`, etc.) in a dedicated module.
-    *   Refs: Section 3.
+    *   creating them on the fly as needed
 *   [ ] **Mathematical Functions Implementation:**
     *   Description: Implement helper functions defined in the spec.
     *   Refs: Section 4.7.
@@ -50,36 +46,36 @@ Goal: Set up the Rust project, basic data structures, and utilities.
 
 Goal: Read the bitstream, identify OBU units, and parse basic data types.
 
-*   [ ] **Syntax Descriptor Parsing (Non-Arithmetic):**
+*   [-] **Syntax Descriptor Parsing (Non-Arithmetic):**
     *   Description: Implement functions within the bitstream reader or a parsing module to handle the basic, non-arithmetically coded descriptors.
     *   Refs: Section 4.10.
     *   Tasks:
         *   [ ] `f(n)` (Read `n` unsigned bits) - Section 4.10.2, 8.1
-        *   [ ] `uvlc()` (Unsigned Variable Length Code) - Section 4.10.3
+        *   [x] `uvlc()` (Unsigned Variable Length Code) - Section 4.10.3
         *   [ ] `le(n)` (Read `n` little-endian bytes) - Section 4.10.4
-        *   [ ] `leb128()` (Little-Endian Base 128) - Section 4.10.5
+        *   [x] `leb128()` (Little-Endian Base 128) - Section 4.10.5
         *   [ ] `su(n)` (Signed `n`-bit integer) - Section 4.10.6
         *   [ ] `ns(n)` (Non-symmetric unsigned integer) - Section 4.10.7
-*   [ ] **OBU Header Parsing:**
+*   [x] **OBU Header Parsing:**
     *   Description: Read and interpret the OBU header fields.
     *   Refs: Section 5.3.2, 6.2.2.
     *   Tasks:
-        *   [ ] Read `obu_forbidden_bit` (and check it's 0).
-        *   [ ] Read `obu_type`.
-        *   [ ] Read `obu_extension_flag`.
-        *   [ ] Read `obu_has_size_field`.
-        *   [ ] Read `obu_reserved_1bit` (and check it's 0).
-*   [ ] **OBU Extension Header Parsing:**
+        *   [x] Read `obu_forbidden_bit` (and check it's 0).
+        *   [x] Read `obu_type`.
+        *   [x] Read `obu_extension_flag`.
+        *   [x] Read `obu_has_size_field`.
+        *   [x] Read `obu_reserved_1bit` (and check it's 0).
+*   [x] **OBU Extension Header Parsing:**
     *   Description: If `obu_extension_flag` is 1, read the extension header.
     *   Refs: Section 5.3.3, 6.2.3.
     *   Tasks:
-        *   [ ] Read `temporal_id`.
-        *   [ ] Read `spatial_id`.
-        *   [ ] Read `extension_header_reserved_3bits` (and check it's 0).
-*   [ ] **OBU Size Parsing:**
+        *   [x] Read `temporal_id`.
+        *   [x] Read `spatial_id`.
+        *   [x] Read `extension_header_reserved_3bits` (and check it's 0).
+*   [x] **OBU Size Parsing:**
     *   Description: If `obu_has_size_field` is 1, read `obu_size` using `leb128()`. Store the size associated with the OBU.
     *   Refs: Section 5.3.1, 4.10.5.
-*   [ ] **OBU Iteration/Skipping:**
+*   [-] **OBU Iteration/Skipping:**
     *   Description: Implement logic to iterate through OBUs in a bitstream, using `obu_size` (if present) or other framing mechanisms (like Annex B, if supported later) to find the start/end of each OBU. Implement skipping unknown/unsupported OBU types based on their size.
     *   Refs: Section 5.3.1, 6.2.1, Annex B.
 *   [ ] **Trailing Bits & Byte Alignment Parsing:**
@@ -92,20 +88,20 @@ Goal: Read the bitstream, identify OBU units, and parse basic data types.
 
 Goal: Parse sequence-level and frame-level parameters necessary to configure the decoder.
 
-*   [ ] **Sequence Header OBU Parsing:**
+*   [x] **Sequence Header OBU Parsing:**
     *   Description: Parse the full Sequence Header OBU payload. Store parameters in a persistent decoder context or `SequenceHeader` struct.
     *   Refs: Section 5.5, 6.4.
     *   Tasks:
-        *   [ ] Parse `seq_profile`, `still_picture`, `reduced_still_picture_header`.
-        *   [ ] Parse timing/model info presence flags.
-        *   [ ] Parse operating point information (`operating_points_cnt_minus_1`, `operating_point_idc`, `seq_level_idx`, `seq_tier`).
-        *   [ ] Parse display/decoder model info if present (5.5.3, 5.5.4, 5.5.5).
-        *   [ ] Parse frame resolution parameters (`frame_width_bits_minus_1`, etc.).
-        *   [ ] Parse frame ID parameters if present.
-        *   [ ] Parse feature flags (`use_128x128_superblock`, `enable_filter_intra`, etc.).
-        *   [ ] Parse Color Configuration (5.5.2, 6.4.2).
-        *   [ ] Parse `film_grain_params_present`.
-*   [ ] **Frame Header OBU Parsing (General):**
+        *   [x] Parse `seq_profile`, `still_picture`, `reduced_still_picture_header`.
+        *   [x] Parse timing/model info presence flags.
+        *   [x] Parse operating point information (`operating_points_cnt_minus_1`, `operating_point_idc`, `seq_level_idx`, `seq_tier`).
+        *   [x] Parse display/decoder model info if present (5.5.3, 5.5.4, 5.5.5).
+        *   [x] Parse frame resolution parameters (`frame_width_bits_minus_1`, etc.).
+        *   [x] Parse frame ID parameters if present.
+        *   [x] Parse feature flags (`use_128x128_superblock`, `enable_filter_intra`, etc.).
+        *   [x] Parse Color Configuration (5.5.2, 6.4.2).
+        *   [x] Parse `film_grain_params_present`.
+*   [-] **Frame Header OBU Parsing (General):**
     *   Description: Handle the top-level Frame Header OBU logic, including potentially copying state from a previous header.
     *   Refs: Section 5.9.1, 6.8.1.
 *   [ ] **Uncompressed Header Parsing:**

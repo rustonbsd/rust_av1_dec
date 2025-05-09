@@ -1,8 +1,8 @@
 use bitstream_io::FromBitStream;
 
-use crate::{consts::OBU_TYPE, leb_128};
+use crate::{consts::{self, OBU_TYPE}, generics::uvlc, leb_128};
 
-use super::OBU_Sequence_Header;
+use super::{handlers::choose_operating_point, Decoder_Model_Info, OBU_Sequence_Header, Operating_Parameters_Info, Timing_Info};
 
 /* OBU syntax
 open_bitstream_unit( sz ) {	Type
@@ -207,38 +207,237 @@ impl OBU_Sequence_Header {
         let still_picture = r.read::<1, u8>()?;
         let reduced_still_picture_header = r.read::<1, u8>()?;
 
-        let timing_info_present_flag: u8;
-        let decoder_model_info_present_flag: u8;
-        let initial_display_delay_present_flag: u8;
-        let operating_points_cnt_minus_1: u8;
-        let seq_level_idx: Vec<u8>;
-        let seq_tier: Vec<u8>;
-        let decoder_model_present_for_this_op: Vec<u8>;
-        let initial_display_delay_present_for_this_op: Vec<u8>;
+        let mut timing_info_present_flag: u8 = 0u8;
+        let mut decoder_model_info_present_flag: u8 = 0u8;
+        let mut decoder_model_info: Option<Decoder_Model_Info> = None;
+        let mut initial_display_delay_present_flag: u8 = 0u8;
+        let mut operating_points_cnt_minus_1: u8 = 0u8;
+        let mut operating_point_idc: Vec<u16> = vec![0u16];
 
-        if reduced_still_picture_header == 1 {
-            timing_info_present_flag = 0;
-            decoder_model_info_present_flag = 0;
-            initial_display_delay_present_flag = 0;
-            operating_points_cnt_minus_1 = 0;
-            seq_level_idx = vec![r.read::<5, u8>()?];
-            seq_tier = vec![0];
-            decoder_model_present_for_this_op = vec![0];
-            initial_display_delay_present_for_this_op = vec![0];
-        } else {
+        let mut seq_level_idx: Vec<u8> = vec![r.read::<5, u8>()?];
+
+        let mut seq_tier: Vec<u8> = vec![0u8];
+        let mut decoder_model_present_for_this_op: Vec<u8> = vec![0u8];
+        let mut operating_parameters_info: Option<Operating_Parameters_Info> = None;
+        let mut initial_display_delay_present_for_this_op: Vec<u8> = vec![0u8];
+        let mut initial_display_delay_minus_1: Option<Vec<u8>> = None;
+
+        if reduced_still_picture_header == 0{
+
             timing_info_present_flag = r.read::<1,u8>()?;
-            if timing_info_present_flag == 1 {
-                decoder_model_info_present_flag = r.read::<1, u8>()?;
-                initial_display_delay_present_flag = r.read::<1, u8>()?;
+
+            // Timing_Info
+            let timing_info = if timing_info_present_flag == 1 {
+                Some(Timing_Info::from_reader(r)?)
+            } else {
+                None
+            };
+
+            // Decoder_Model_Info
+            let decoder_model_info_present_flag: u8 = if timing_info_present_flag == 1 {
+                r.read::<1, u8>()?
+            } else {
+                0u8
+            };
+
+            let decoder_model_info: Option<Decoder_Model_Info> = if decoder_model_info_present_flag != 0u8 {
+                Some(Decoder_Model_Info::from_reader(r)?)
+            } else {
+                None
+            };
+            
+            // Operating_point_idc
+            // seq_level_idx
+            // seq_tier
+            // Operating_Parameters_Info
+            // initial_display_delay_minus_1
+            initial_display_delay_present_flag = r.read::<1, u8>()?;
+            operating_points_cnt_minus_1 = r.read::<5, u8>()?;
+            for i in 0..operating_points_cnt_minus_1 as usize {
+                operating_point_idc.push(r.read::<12,u16>()?);
+                seq_level_idx.push(r.read::<5,u8>()?);
+
+                // seq_tier
+                if seq_level_idx.last()?.to_owned() > 7 {
+                    seq_tier.push(r.read::<1, u8>()?);
+                } else {
+                    seq_tier.push(0);
+                }
+
+                // Operating_Parameters_Info
+                if decoder_model_info_present_flag != 0u8  {
+                    decoder_model_present_for_this_op.push(r.read::<1, u8>()?);
+                    if decoder_model_present_for_this_op.last()?.to_owned() != 0 {
+                        let decoder_model_info = decoder_model_info.as_ref().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Decoder model info not present"))?;
+
+                        if operating_parameters_info.is_none() {
+                            operating_parameters_info = Some(Operating_Parameters_Info::new());
+                        }
+                        operating_parameters_info.as_mut()?.from_reader(r,decoder_model_info)?;
+                    }
+                } else {
+                    decoder_model_present_for_this_op.push(0);
+                }
+
+                // initial_display_delay_minus_1
+                if initial_display_delay_present_flag != 0 {
+                    initial_display_delay_present_for_this_op.push(r.read::<1, u8>()?);
+                    if initial_display_delay_present_for_this_op.last()?.to_owned() != 0u8 {
+                        if initial_display_delay_minus_1.is_none() {
+                            initial_display_delay_minus_1 = Some(Vec::new());
+                        }
+                        initial_display_delay_minus_1.as_mut()?.push(r.read::<4, u8>()?);
+                    }
+                }
             }
         }
-        
 
-        Ok(Self {
-            seq_profile: r.read::<3, u8>()?,
-            still_picture: r.read::<1, u8>()?,
-            reduced_still_picture_header: r.read::<1, u8>()?,
-        })
+        // Operating point
+        let operating_point_index = choose_operating_point()?;
+        if operating_point_index >= operating_point_idc.len() {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Operating point index out of bounds"));
+        }
+        let c_operating_point_idc = operating_point_idc[operating_point_index];
+        let frame_width_bits_minus_1 = r.read::<4, u8>()?;
+        let frame_height_bits_minus_1 = r.read::<4, u8>()?;
+        let max_frame_width_minus_one: u16 = r.read_var(frame_width_bits_minus_1 as u32 + 1u32)?;  // 2**4 = 16 bits
+        let max_frame_height_minus_one: u16 = r.read_var(frame_height_bits_minus_1 as u32 + 1u32)?; // 2**4 = 16 bits
+        let frame_id_numbers_present_flag = if reduced_still_picture_header != 0 {
+            0u8
+        } else {
+            r.read::<1, u8>()?
+        };
+        let delta_frame_id_length_minus_2: Option<u8> = if frame_id_numbers_present_flag != 0 {
+            Some(r.read::<4, u8>()?)
+        } else {
+            None
+        };
+        let additional_frame_id_length_minus_1: Option<u8> = if frame_id_numbers_present_flag != 0 {
+            Some(r.read::<3, u8>()?)
+        } else {
+            None
+        };
+
+        // Flags
+        let use_128x128_superblock = r.read::<1, u8>()?;
+        let enable_filter_infra = r.read::<1,u8>()?;
+        let enable_intra_edge_filter = r.read::<1,u8>()?;
+
+        let mut enable_interintra_compound: u8 = 0u8;
+        let mut enable_masked_compound: u8 = 0u8;
+        let mut enable_warped_motion: u8 = 0u8;
+        let mut enable_dual_filter: u8 = 0u8;
+        let mut enable_order_hint: u8 = 0u8;
+        let mut enable_jnt_comp: u8 = 0u8;
+        let mut enable_ref_frame_mvs: u8 = 0u8;
+        let mut seq_force_screen_content_tools: u8 = consts::SELECT_SCREEN_CONTENT_TOOLS;
+        let mut seq_force_integer_mv: u8 = consts::SELECT_INTEGER_MV;
+        let mut order_hint_bits: u8 = 0u8;
+
+        if reduced_still_picture_header != 0 {
+            enable_interintra_compound = r.read::<1,u8>()?;
+            enable_masked_compound = r.read::<1,u8>()?;
+            enable_warped_motion = r.read::<1,u8>()?;
+            enable_dual_filter = r.read::<1,u8>()?;
+            enable_order_hint = r.read::<1,u8>()?;
+
+            if enable_order_hint != 0 {
+                enable_jnt_comp = r.read::<1,u8>()?;
+                enable_ref_frame_mvs = r.read::<1,u8>()?;
+            }
+
+            let seq_choose_screen_content_tools = r.read::<1,u8>()?;
+            if seq_choose_screen_content_tools == 0 {
+                seq_force_screen_content_tools = r.read::<1,u8>()?;
+            }
+
+            if seq_force_screen_content_tools > 0u8 {
+                let seq_choose_integer_mv = r.read::<1,u8>()?;
+                if seq_choose_integer_mv == 0 {
+                    seq_force_integer_mv = r.read::<1,u8>()?;
+                }
+            }
+
+            if enable_order_hint != 0 {
+                order_hint_bits = r.read::<3,u8>()? + 1u8;
+            }
+        }
+
+        let enable_superres = r.read::<1,u8>()?;
+        let enable_cdef = r.read::<1,u8>()?;
+        let enable_restoration = r.read::<1,u8>()?;
+
+        // Color config
+        todo!();
+
+        let film_grain_params_present = r.read::<1,u8>()?;
+
+
     }
 
+}
+
+impl FromBitStream for Timing_Info {
+    type Error = std::io::Error;
+
+    fn from_reader<R: bitstream_io::BitRead + ?Sized>(r: &mut R) -> Result<Self, Self::Error>
+    where
+        Self: Sized {
+        let num_units_in_display_tick = r.read::<32,u32>()?;
+        let time_scale = r.read::<32,u32>()?;
+        let equal_picture_interval = r.read::<1, u8>()?;
+        let num_ticks_per_picture_minus_1 = if equal_picture_interval == 1 {
+            Some(uvlc::from_reader(r)?)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            num_units_in_display_tick,
+            time_scale,
+            equal_picture_interval,
+            num_ticks_per_picture_minus_1,
+        })
+    }
+}
+
+impl FromBitStream for Decoder_Model_Info {
+    type Error = std::io::Error;
+
+    fn from_reader<R: bitstream_io::BitRead + ?Sized>(r: &mut R) -> Result<Self, Self::Error>
+    where
+        Self: Sized {
+            let buffer_delay_length_minus_1 = r.read::<5, u8>()?;
+            let num_units_in_decoding_tick = r.read::<32, u32>()?;
+            let buffer_removal_delay_length_minus_1 = r.read::<5, u8>()?;
+            let frame_presentation_delay_length_minus_1 = r.read::<5, u8>()?;
+
+            Ok(Self {
+                buffer_delay_length_minus_1,
+                num_units_in_decoding_tick,
+                buffer_removal_delay_length_minus_1,
+                frame_presentation_delay_length_minus_1,
+            })
+        }
+}
+
+impl Operating_Parameters_Info {
+
+    pub fn new() -> Self {
+        Self {
+            decoder_buffer_delay: Vec::new(),
+            encoder_buffer_delay: Vec::new(),
+            low_delay_mode_flag: Vec::new(),
+        }
+    }
+
+    fn from_reader<R: bitstream_io::BitRead + ?Sized>(&mut self, r: &mut R, decoder_model_info: &Decoder_Model_Info) -> Result<(), std::io::Error>
+    where
+        Self: Sized {
+            let n = decoder_model_info.buffer_delay_length_minus_1 as u32 + 1; // max 32 = 2**5+1
+            self.decoder_buffer_delay.push(r.read_var(n)?);
+            self.encoder_buffer_delay.push(r.read_var(n)?);
+            self.low_delay_mode_flag.push(r.read::<1, u8>()?);
+            Ok(())
+    }
 }

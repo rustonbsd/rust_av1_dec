@@ -1,6 +1,7 @@
 use bitstream_io::{FromBitStream, ToBitStream};
 
-
+pub const SELECT_SCREEN_CONTENT_TOOLS: u8 = 2u8;
+pub const SELECT_INTEGER_MV: u8 = 2u8;
 
 
 

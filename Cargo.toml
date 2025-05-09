@@ -7,3 +7,4 @@ description = "pure rust av1 decoder project"
 
 [dependencies]
 bitstream-io ={ version = "4.0.0" }
+log = "0.4.27"

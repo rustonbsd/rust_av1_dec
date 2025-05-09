@@ -3,7 +3,7 @@ use std::u32;
 use bitstream_io::FromBitStream;
 
 // 4.10.3 UVLC
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct uvlc {
     value: u32,
 }
@@ -33,7 +33,7 @@ impl FromBitStream for uvlc {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct leb_128 {
     value: u64,
 }

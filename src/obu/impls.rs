@@ -2,104 +2,14 @@ use bitstream_io::FromBitStream;
 
 use crate::{consts::{self, OBU_TYPE}, generics::uvlc, leb_128};
 
-use super::{handlers::choose_operating_point, Decoder_Model_Info, OBU_Sequence_Header, Operating_Parameters_Info, Timing_Info};
-
-/* OBU syntax
-open_bitstream_unit( sz ) {	Type
-    obu_header()
-    if ( obu_has_size_field ) {
-        obu_size	leb128()
-    } else {
-        obu_size = sz - 1 - obu_extension_flag
-    }
-    startPosition = get_position( )
-    if ( obu_type != OBU_SEQUENCE_HEADER &&
-         obu_type != OBU_TEMPORAL_DELIMITER &&
-         OperatingPointIdc != 0 &&
-         obu_extension_flag == 1 )
-    {
-        inTemporalLayer = (OperatingPointIdc >> temporal_id ) & 1
-        inSpatialLayer = (OperatingPointIdc >> ( spatial_id + 8 ) ) & 1
-        if ( !inTemporalLayer || ! inSpatialLayer ) {
-            drop_obu( )
-            return
-        }
-    }
-    if ( obu_type == OBU_SEQUENCE_HEADER )
-        sequence_header_obu( )
-    else if ( obu_type == OBU_TEMPORAL_DELIMITER )
-        temporal_delimiter_obu( )
-    else if ( obu_type == OBU_FRAME_HEADER )
-        frame_header_obu( )
-    else if ( obu_type == OBU_REDUNDANT_FRAME_HEADER )
-        frame_header_obu( )
-    else if ( obu_type == OBU_TILE_GROUP )
-        tile_group_obu( obu_size )
-    else if ( obu_type == OBU_METADATA )
-        metadata_obu( )
-    else if ( obu_type == OBU_FRAME )
-        frame_obu( obu_size )
-    else if ( obu_type == OBU_TILE_LIST )
-        tile_list_obu( )
-    else if ( obu_type == OBU_PADDING )
-        padding_obu( )
-    else
-        reserved_obu( )
-    currentPosition = get_position( )
-    payloadBits = currentPosition - startPosition
-    if ( obu_size > 0 && obu_type != OBU_TILE_GROUP &&
-         obu_type != OBU_TILE_LIST &&
-         obu_type != OBU_FRAME ) {
-        trailing_bits( obu_size * 8 - payloadBits )
-    }
-}
-*/
-#[derive(Debug, PartialEq, Eq)]
-pub struct OBU {
-    obu_size: leb_128,
-    obu_header: OBU_Header,
-}
-
-/*
-    obu_header() {	Type
-        obu_forbidden_bit	f(1)
-        obu_type	f(4)
-        obu_extension_flag	f(1)
-        obu_has_size_field	f(1)
-        obu_reserved_1bit	f(1)
-        if ( obu_extension_flag == 1 )
-            obu_extension_header()
-    }
-*/
-#[derive(Debug, PartialEq, Eq)]
-pub struct OBU_Header {
-    obu_forbidden_bit: u8,                              // 1 bit
-    obu_type: OBU_TYPE,                                 // 4 bits
-    obu_extension_flag: u8,                             // 1 bit
-    obu_has_size_field: u8,                             // 1 bit
-    obu_reserved_1bit: u8,                              // 1 bit
-    obu_extension_header: Option<OBU_Extension_Header>, // 8 bits
-}
-
-/* obu_extension_header() {	Type
-        temporal_id	f(3)
-        spatial_id	f(2)
-        extension_header_reserved_3bits	f(3)
-    }
-*/
-#[derive(Debug, PartialEq, Eq)]
-pub struct OBU_Extension_Header {
-    temporal_id: u8,                     // 3 bits
-    spatial_id: u8,                      // 2 bits
-    extension_header_reserved_3bits: u8, // 3 bits
-}
+use super::{handlers::choose_operating_point, Color_Config, Decoder_Model_Info, OBU_Extension_Header, OBU_Header, OBU_Sequence_Header, Operating_Parameters_Info, Timing_Info, OBU};
 
 impl OBU {
     
     pub fn open_bitstream_unit<R: bitstream_io::BitRead + ?Sized>(
         r: &mut R,
         sz: u64,
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<OBU, std::io::Error> {
         let header = OBU_Header::from_reader(r)?;
         let obu_size = if header.obu_has_size_field == 1 {
             leb_128::from_reader(r)?
@@ -115,7 +25,7 @@ impl OBU {
             && header.obu_extension_flag == 1
             && header.obu_extension_header.is_some()
         {
-            let extra_headers = header.obu_extension_header.unwrap();
+            let extra_headers = header.obu_extension_header.clone().unwrap();
             let in_temporal_layer = (operating_point_idc >> extra_headers.temporal_id) & 1u8;
             let in_spatial_layer = (operating_point_idc >> (extra_headers.spatial_id + 8u8)) & 1u8;
 
@@ -127,10 +37,13 @@ impl OBU {
             }
         }
 
-        match header.obu_type {
-            OBU_TYPE::OBU_SEQUENCE_HEADER => 
-        }
-        Ok(())
+        let obu_sequence_header = if header.obu_type == OBU_TYPE::OBU_SEQUENCE_HEADER {
+            Some(OBU_Sequence_Header::sequence_header_obu(r)?)
+        } else {
+            None
+        };
+
+        Ok(OBU { obu_size, obu_header: header })
     }
 }
 
@@ -199,7 +112,7 @@ impl FromBitStream for OBU_Extension_Header {
 impl OBU_Sequence_Header {
     
     // 5.5.1 General sequence header OBU syntax
-    fn sequence_header_obu<R: bitstream_io::BitRead + ?Sized>(r: &mut R) -> Result<Self, std:io::Error> 
+    fn sequence_header_obu<R: bitstream_io::BitRead + ?Sized>(r: &mut R) -> Result<Self, std::io::Error> 
     where
         Self: Sized,
     {
@@ -221,17 +134,16 @@ impl OBU_Sequence_Header {
         let mut operating_parameters_info: Option<Operating_Parameters_Info> = None;
         let mut initial_display_delay_present_for_this_op: Vec<u8> = vec![0u8];
         let mut initial_display_delay_minus_1: Option<Vec<u8>> = None;
+        let mut timing_info: Option<Timing_Info> = None;
 
         if reduced_still_picture_header == 0{
 
             timing_info_present_flag = r.read::<1,u8>()?;
 
             // Timing_Info
-            let timing_info = if timing_info_present_flag == 1 {
-                Some(Timing_Info::from_reader(r)?)
-            } else {
-                None
-            };
+            if timing_info_present_flag == 1 {
+                timing_info = Some(Timing_Info::from_reader(r)?);
+            }
 
             // Decoder_Model_Info
             let decoder_model_info_present_flag: u8 = if timing_info_present_flag == 1 {
@@ -258,7 +170,7 @@ impl OBU_Sequence_Header {
                 seq_level_idx.push(r.read::<5,u8>()?);
 
                 // seq_tier
-                if seq_level_idx.last()?.to_owned() > 7 {
+                if *seq_level_idx.last().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Seq level idx not present"))? > 7 {
                     seq_tier.push(r.read::<1, u8>()?);
                 } else {
                     seq_tier.push(0);
@@ -267,13 +179,13 @@ impl OBU_Sequence_Header {
                 // Operating_Parameters_Info
                 if decoder_model_info_present_flag != 0u8  {
                     decoder_model_present_for_this_op.push(r.read::<1, u8>()?);
-                    if decoder_model_present_for_this_op.last()?.to_owned() != 0 {
+                    if *decoder_model_present_for_this_op.last().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Decoder model present for this op not present"))? != 0 {
                         let decoder_model_info = decoder_model_info.as_ref().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Decoder model info not present"))?;
 
                         if operating_parameters_info.is_none() {
                             operating_parameters_info = Some(Operating_Parameters_Info::new());
                         }
-                        operating_parameters_info.as_mut()?.from_reader(r,decoder_model_info)?;
+                        operating_parameters_info.as_mut().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Operating parameters info not present"))?.from_reader(r,decoder_model_info)?;
                     }
                 } else {
                     decoder_model_present_for_this_op.push(0);
@@ -282,11 +194,11 @@ impl OBU_Sequence_Header {
                 // initial_display_delay_minus_1
                 if initial_display_delay_present_flag != 0 {
                     initial_display_delay_present_for_this_op.push(r.read::<1, u8>()?);
-                    if initial_display_delay_present_for_this_op.last()?.to_owned() != 0u8 {
+                    if initial_display_delay_present_for_this_op.last().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Initial display delay present for this op not present"))?.to_owned() != 0u8 {
                         if initial_display_delay_minus_1.is_none() {
                             initial_display_delay_minus_1 = Some(Vec::new());
                         }
-                        initial_display_delay_minus_1.as_mut()?.push(r.read::<4, u8>()?);
+                        initial_display_delay_minus_1.as_mut().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Initial display delay minus 1 not present"))?.push(r.read::<4, u8>()?);
                     }
                 }
             }
@@ -320,7 +232,7 @@ impl OBU_Sequence_Header {
 
         // Flags
         let use_128x128_superblock = r.read::<1, u8>()?;
-        let enable_filter_infra = r.read::<1,u8>()?;
+        let enable_filter_intra = r.read::<1,u8>()?;
         let enable_intra_edge_filter = r.read::<1,u8>()?;
 
         let mut enable_interintra_compound: u8 = 0u8;
@@ -368,10 +280,45 @@ impl OBU_Sequence_Header {
         let enable_restoration = r.read::<1,u8>()?;
 
         // Color config
-        todo!();
-
+        let color_config = Color_Config::from_reader(r,seq_profile)?;
         let film_grain_params_present = r.read::<1,u8>()?;
 
+        Ok(Self {
+            seq_profile,
+            still_picture,
+            timing_info,
+            decoder_model_info,
+            operating_point_idc,
+            seq_level_idx,
+            seq_tier,
+            decoder_model_present_for_this_op,
+            operating_parameters_info,
+            initial_display_delay_present_for_this_op,
+            initial_display_delay_minus_1,
+            c_operating_point_idc,
+            max_frame_width_minus_one,
+            max_frame_height_minus_one,
+            delta_frame_id_length_minus_2,
+            additional_frame_id_length_minus_1,
+            use_128x128_superblock,
+            enable_filter_intra,
+            enable_intra_edge_filter,
+            enable_interintra_compound,
+            enable_masked_compound,
+            enable_warped_motion,
+            enable_dual_filter,
+            enable_order_hint,
+            enable_jnt_comp,
+            enable_ref_frame_mvs,
+            seq_force_screen_content_tools,
+            seq_force_integer_mv,
+            order_hint_bits,
+            enable_superres,
+            enable_cdef,
+            enable_restoration,
+            color_config,
+            film_grain_params_present,
+        })
 
     }
 
@@ -440,4 +387,121 @@ impl Operating_Parameters_Info {
             self.low_delay_mode_flag.push(r.read::<1, u8>()?);
             Ok(())
     }
+}
+
+impl Color_Config {
+    fn from_reader<R: bitstream_io::BitRead + ?Sized>(r: &mut R, seq_profile: u8) -> Result<Self, std::io::Error>
+    where
+        Self: Sized {
+            let high_bit_depth: u8 = r.read::<1,u8>()?;
+
+            let bit_depth = if seq_profile == 2u8 && high_bit_depth != 0u8 {
+                12u8
+            } else {
+                10u8
+            };
+
+            let mono_chrome = if seq_profile == 1u8 {
+                0u8
+            } else {
+                r.read::<1, u8>()?
+            };
+
+            let num_planes = if mono_chrome == 0u8 {
+                3u8
+            } else {
+                1u8
+            };
+
+        let mut color_primaries = consts::COLOR_PRIMARIES::CP_UNSPECIFIED;
+        let mut transfer_characteristics = consts::TRANSFER_CHARACTERISTICS::TC_UNSPECIFIED;
+        let mut matrix_coefficients = consts::MATRIX_COEFFICIENTS::MC_UNSPECIFIED;
+
+        // color_description_present_flag
+        if r.read::<1,u8>()? != 0u8 {
+            color_primaries = consts::COLOR_PRIMARIES::from_reader(r)?;
+            transfer_characteristics = consts::TRANSFER_CHARACTERISTICS::from_reader(r)?;
+            matrix_coefficients = consts::MATRIX_COEFFICIENTS::from_reader(r)?;
+        }
+
+        let color_range: u8;
+        let subsampling_x: u8;
+        let subsampling_y: u8;
+        let mut chroma_sample_position: consts::CHROMA_SAMPLE_POSITION = consts::CHROMA_SAMPLE_POSITION::CSP_UNKNOWN;
+        let separate_uv_delta_q: u8;
+
+        if mono_chrome != 0 {
+            color_range = r.read::<1, u8>()?;
+            subsampling_x = 1u8;
+            subsampling_y = 1u8;
+            separate_uv_delta_q = 0u8;
+
+            return Ok(Self {
+                bit_depth,
+                mono_chrome,
+                num_planes,
+                color_primaries,
+                transfer_characteristics,
+                matrix_coefficients,
+                color_range,
+                subsampling_x,
+                subsampling_y,
+                chroma_sample_position,
+                separate_uv_delta_q,
+            });
+        } else if color_primaries == consts::COLOR_PRIMARIES::CP_BT_709 
+            && transfer_characteristics == consts::TRANSFER_CHARACTERISTICS::TC_SRGB 
+            && matrix_coefficients == consts::MATRIX_COEFFICIENTS::MC_IDENTITY {
+            color_range = 1u8;
+            subsampling_x = 0u8;
+            subsampling_y = 0u8;
+        } else {
+            color_range = r.read::<1, u8>()?;
+            
+            match seq_profile {
+                0 => {
+                    subsampling_x = 1u8;
+                    subsampling_y = 1u8;
+                },
+                1 => {
+                    subsampling_x = r.read::<1, u8>()?;
+                    subsampling_y = r.read::<1, u8>()?;
+                },
+                _ => {
+                    if bit_depth == 12 {
+                        subsampling_x = r.read::<1, u8>()?;
+                        if subsampling_x != 0 {
+                            subsampling_y = r.read::<1, u8>()?;
+                        } else {
+                            subsampling_y = 0u8;
+                        }
+                    } else {
+                        subsampling_x = 1u8;
+                        subsampling_y = 0u8;
+                    }
+                }
+            }
+
+            if subsampling_x != 0 && subsampling_y != 0 {
+                chroma_sample_position = consts::CHROMA_SAMPLE_POSITION::from_reader(r)?;
+            }
+        }
+
+        separate_uv_delta_q = r.read::<1, u8>()?;
+
+        Ok(Self {
+            bit_depth,
+            mono_chrome,
+            num_planes,
+            color_primaries,
+            transfer_characteristics,
+            matrix_coefficients,
+            color_range,
+            subsampling_x,
+            subsampling_y,
+            chroma_sample_position,
+            separate_uv_delta_q,
+        })
+
+        }
 }

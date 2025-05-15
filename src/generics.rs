@@ -5,7 +5,7 @@ use bitstream_io::FromBitStream;
 // 4.10.3 UVLC
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct uvlc {
-    value: u32,
+    pub value: u32,
 }
 
 impl uvlc {
@@ -35,13 +35,24 @@ impl FromBitStream for uvlc {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct leb_128 {
-    value: u64,
+    pub value: u64,
 }
 
 impl leb_128 {
     pub fn new(value: u64) -> Self {
         Self { value }
     }
+
+    pub fn size_in_bytes(value: u64) -> usize {
+        let mut size = 1;
+        let mut val = value >> 7;
+        while val > 0 {
+            size += 1;
+            val >>= 7;
+        }
+        size
+    }
+
 }
 
 impl FromBitStream for leb_128 {
@@ -65,5 +76,17 @@ impl FromBitStream for leb_128 {
             std::io::ErrorKind::InvalidData,
             "leb128 exeeded 8 bytes",
         ))
+    }
+}
+
+impl std::fmt::Display for uvlc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "uvlc({})", self.value)
+    }
+}
+
+impl std::fmt::Display for leb_128 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "leb_128({})", self.value)
     }
 }

@@ -51,7 +51,10 @@ impl FromBitStream for COLOR_PRIMARIES {
     fn from_reader<R: bitstream_io::BitRead + ?Sized>(r: &mut R) -> Result<Self, Self::Error>
     where
         Self: Sized {
-        match r.read::<8,u8>()? {
+
+        let raw = r.read::<8,u8>()?;
+        println!("Color primaries: {}", raw);
+        match raw {
             1 => Ok(Self::CP_BT_709),
             2 => Ok(Self::CP_UNSPECIFIED),
             4 => Ok(Self::CP_BT_470_M),
@@ -75,7 +78,9 @@ impl FromBitStream for TRANSFER_CHARACTERISTICS {
     fn from_reader<R: bitstream_io::BitRead + ?Sized>(r: &mut R) -> Result<Self, Self::Error>
     where
         Self: Sized {
-        match r.read::<8,u8>()? {
+        let raw = r.read::<8,u8>()?;
+        println!("Transfer characteristics: {}", raw);
+        match raw {
             0 => Ok(Self::TC_RESERVED_0),
             1 => Ok(Self::TC_BT_709),
             2 => Ok(Self::TC_UNSPECIFIED),

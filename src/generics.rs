@@ -4,17 +4,17 @@ use bitstream_io::FromBitStream;
 
 // 4.10.3 UVLC
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct uvlc {
+pub struct Uvlc {
     pub value: u32,
 }
 
-impl uvlc {
+impl Uvlc {
     pub fn new(value: u32) -> Self {
         Self { value }
     }
 }
 
-impl FromBitStream for uvlc {
+impl FromBitStream for Uvlc {
     type Error = std::io::Error;
 
     fn from_reader<R: bitstream_io::BitRead + ?Sized>(r: &mut R) -> Result<Self, Self::Error>
@@ -34,11 +34,11 @@ impl FromBitStream for uvlc {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct leb_128 {
+pub struct Leb128 {
     pub value: u64,
 }
 
-impl leb_128 {
+impl Leb128 {
     pub fn new(value: u64) -> Self {
         Self { value }
     }
@@ -55,7 +55,7 @@ impl leb_128 {
 
 }
 
-impl FromBitStream for leb_128 {
+impl FromBitStream for Leb128 {
     type Error = std::io::Error;
 
     fn from_reader<R: bitstream_io::BitRead + ?Sized>(r: &mut R) -> Result<Self, Self::Error>
@@ -79,13 +79,13 @@ impl FromBitStream for leb_128 {
     }
 }
 
-impl std::fmt::Display for uvlc {
+impl std::fmt::Display for Uvlc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "uvlc({})", self.value)
     }
 }
 
-impl std::fmt::Display for leb_128 {
+impl std::fmt::Display for Leb128 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "leb_128({})", self.value)
     }

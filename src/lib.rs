@@ -2,4 +2,4 @@ pub mod obu;
 pub mod generics;
 pub mod consts;
 
-pub use generics::leb_128;
+pub use generics::{Leb128, Uvlc};

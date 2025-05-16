@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::{self, Read};
-use bitstream_io::{BitReader, BitRead};
-use rust_av1_dec::{leb_128, consts::OBU_TYPE};
+use bitstream_io::BitReader;
+use rust_av1_dec::{Leb128, consts::OBU_TYPE};
 use rust_av1_dec::obu::OBU;
 
 #[test]
@@ -21,10 +21,10 @@ fn test_parse_sequence_headers() -> io::Result<()> {
         
         match OBU::open_bitstream_unit(&mut segment_reader, (buffer.len() - position) as u64) {
             Ok(obu) => {
-                if obu.obu_header.obu_type == OBU_TYPE::OBU_SEQUENCE_HEADER {
+                if obu.header.obu_type == OBU_TYPE::OBU_SEQUENCE_HEADER {
                     sequence_headers_found += 1;
                     
-                    if let Some(seq_header) = &obu.obu_sequence_header {
+                    if let Some(seq_header) = &obu.sequence_header {
                         sequence_headers_parsed += 1;
                         println!("Sequence Header #{} found:", sequence_headers_parsed);
                         println!(" -> {}", seq_header);
@@ -32,9 +32,9 @@ fn test_parse_sequence_headers() -> io::Result<()> {
                     }
                 }
                 
-                position += obu.obu_size.value as usize + 1;
-                if obu.obu_header.obu_has_size_field == 1 {
-                    let size_bytes = leb_128::size_in_bytes(obu.obu_size.value);
+                position += obu.size.value as usize + 1;
+                if obu.header.has_size_field == 1 {
+                    let size_bytes = Leb128::size_in_bytes(obu.size.value);
                     position += size_bytes;
                 }
             },
@@ -71,15 +71,15 @@ fn test_sequence_header_values_match_reference() -> io::Result<()> {
         
         match OBU::open_bitstream_unit(&mut segment_reader, (buffer.len() - position) as u64) {
             Ok(obu) => {
-                if obu.obu_header.obu_type == OBU_TYPE::OBU_SEQUENCE_HEADER {
-                    if let Some(seq_header) = &obu.obu_sequence_header {
+                if obu.header.obu_type == OBU_TYPE::OBU_SEQUENCE_HEADER {
+                    if let Some(seq_header) = &obu.sequence_header {
                         sequence_headers.push(seq_header.clone());
                     }
                 }
                 
-                position += obu.obu_size.value as usize + 1;
-                if obu.obu_header.obu_has_size_field == 1 {
-                    let size_bytes = leb_128::size_in_bytes(obu.obu_size.value);
+                position += obu.size.value as usize + 1;
+                if obu.header.has_size_field == 1 {
+                    let size_bytes = Leb128::size_in_bytes(obu.size.value);
                     position += size_bytes;
                 }
             },

@@ -1,6 +1,6 @@
-use mp4parse::{read_mp4, ParseStrictness};
+use mp4parse::read_mp4;
 use std::fs::File;
-use std::io::{self, Read, Write, Seek, SeekFrom};
+use std::io::{self, Read, Write, Seek};
 use std::path::Path;
 
 fn main() -> io::Result<()> {

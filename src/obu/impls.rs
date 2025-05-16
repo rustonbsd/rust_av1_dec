@@ -134,10 +134,6 @@ impl OBU_Sequence_Header {
         let mut initial_display_delay_minus_1: Option<Vec<u8>> = None;
         let mut timing_info: Option<Timing_Info> = None;
 
-        println!(
-            "reduced_still_picture_header: {}",
-            reduced_still_picture_header
-        );
         if reduced_still_picture_header != 0 {
             seq_level_idx.push(r.read::<5, u8>()?); // 10
         } else if reduced_still_picture_header == 0 {
@@ -162,23 +158,16 @@ impl OBU_Sequence_Header {
                     None
                 };
 
-            println!("Decoder model info: {:?}", decoder_model_info);
-
             // Operating_point_idc
             // seq_level_idx
             // seq_tier
             // Operating_Parameters_Info
             // initial_display_delay_minus_1
-            initial_display_delay_present_flag = r.read::<1, u8>()?; // 12 0xc
-            operating_points_cnt = r.read::<5, u8>()? + 1; // 17 0x11
-            println!("Operating points cnt: {}", operating_points_cnt);
-            for i in 0..operating_points_cnt as usize {
-                println!("i: {}", i);
-                operating_point_idc.push(r.read::<12, u16>()?); // 29 0x1d
-                seq_level_idx.push(r.read::<5, u8>()?); // 34 
-
-                println!("Operating point idc: {}", operating_point_idc[i]);
-                println!("Seq level idx: {}", seq_level_idx[i]);
+            initial_display_delay_present_flag = r.read::<1, u8>()?;
+            operating_points_cnt = r.read::<5, u8>()? + 1;
+            for _ in 0..operating_points_cnt as usize {
+                operating_point_idc.push(r.read::<12, u16>()?);
+                seq_level_idx.push(r.read::<5, u8>()?);
 
                 // seq_tier
                 if *seq_level_idx.last().ok_or_else(|| {
@@ -270,16 +259,9 @@ impl OBU_Sequence_Header {
         let c_operating_point_idc = 0u16; //operating_point_idc[operating_point_index];
         let frame_width_bits = r.read_unsigned::<4, u8>()? + 1;
         let frame_height_bits = r.read_unsigned::<4, u8>()? + 1;
-        println!("Frame width bits minus 1: {}", frame_width_bits);
-        println!("Frame height bits minus 1: {}", frame_height_bits);
 
-        let max_frame_width: u16 =
-            r.read_unsigned_var::<u16>(frame_width_bits as u32)? + 1u16;
-        let max_frame_height: u16 =
-            r.read_unsigned_var::<u16>(frame_height_bits as u32)? + 1u16;
-
-        println!("Max frame width minus one: {}", max_frame_width);
-        println!("Max frame height minus one: {}", max_frame_height);
+        let max_frame_width: u16 = r.read_unsigned_var::<u16>(frame_width_bits as u32)? + 1u16;
+        let max_frame_height: u16 = r.read_unsigned_var::<u16>(frame_height_bits as u32)? + 1u16;
 
         let frame_id_numbers_present_flag = if reduced_still_picture_header != 0 {
             0u8
@@ -313,7 +295,6 @@ impl OBU_Sequence_Header {
         let mut seq_force_integer_mv: u8 = consts::SELECT_INTEGER_MV;
         let mut order_hint_bits: u8 = 0u8;
 
-        println!("REDUCED STILL PICTURE HEADER: {}", reduced_still_picture_header);
         if reduced_still_picture_header == 0 {
             enable_interintra_compound = r.read::<1, u8>()?;
             enable_masked_compound = r.read::<1, u8>()?;
@@ -348,10 +329,8 @@ impl OBU_Sequence_Header {
         let enable_restoration = r.read::<1, u8>()?;
 
         // Color config
-
-        println!("Seq profile: {}", seq_profile);
         let color_config = Color_Config::from_reader(r, seq_profile)?;
-        println!("Color config: {:?}", color_config);
+
         let film_grain_params_present = r.read::<1, u8>()?;
 
         Ok(Self {
@@ -477,17 +456,9 @@ impl Color_Config {
 
         let bit_depth = if seq_profile == 2u8 && high_bit_depth != 0u8 {
             let twelve_bits = r.read::<1, u8>()?;
-            if twelve_bits != 0u8 {
-                12u8
-            } else {
-                10u8
-            }
+            if twelve_bits != 0u8 { 12u8 } else { 10u8 }
         } else if seq_profile <= 2 {
-            if high_bit_depth != 0u8 {
-                10u8
-            } else {
-                8u8
-            }
+            if high_bit_depth != 0u8 { 10u8 } else { 8u8 }
         } else {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -501,7 +472,6 @@ impl Color_Config {
             r.read::<1, u8>()?
         };
 
-        println!("Mono chrome: {}", mono_chrome);
         let num_planes = if mono_chrome == 0u8 { 3u8 } else { 1u8 };
 
         let mut color_primaries = consts::COLOR_PRIMARIES::CP_UNSPECIFIED;
@@ -510,7 +480,6 @@ impl Color_Config {
 
         // color_description_present_flag
         let color_description_present_flag = r.read::<1, u8>()?;
-        println!("Color description present flag: {}", color_description_present_flag);
         if color_description_present_flag != 0u8 {
             color_primaries = consts::COLOR_PRIMARIES::from_reader(r)?;
             transfer_characteristics = consts::TRANSFER_CHARACTERISTICS::from_reader(r)?;

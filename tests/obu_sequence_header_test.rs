@@ -28,7 +28,6 @@ fn test_parse_sequence_headers() -> io::Result<()> {
                         sequence_headers_parsed += 1;
                         println!("Sequence Header #{} found:", sequence_headers_parsed);
                         println!(" -> {}", seq_header);
-                        println!(" -> {}", seq_header.max_frame_width_minus_one);
                         println!("");
                     }
                 }

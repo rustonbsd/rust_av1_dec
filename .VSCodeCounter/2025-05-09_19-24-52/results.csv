@@ -1,9 +1,0 @@
-"filename", "language", "Rust", "comment", "blank", "total"
-"/Users/zachi/Documents/rust_av1_dec/src/consts/impls.rs", "Rust", 131, 0, 13, 144
-"/Users/zachi/Documents/rust_av1_dec/src/consts/mod.rs", "Rust", 77, 71, 9, 157
-"/Users/zachi/Documents/rust_av1_dec/src/generics.rs", "Rust", 57, 1, 12, 70
-"/Users/zachi/Documents/rust_av1_dec/src/lib.rs", "Rust", 4, 0, 1, 5
-"/Users/zachi/Documents/rust_av1_dec/src/obu/handlers.rs", "Rust", 4, 1, 2, 7
-"/Users/zachi/Documents/rust_av1_dec/src/obu/impls.rs", "Rust", 423, 16, 68, 507
-"/Users/zachi/Documents/rust_av1_dec/src/obu/mod.rs", "Rust", 94, 4, 11, 109
-"Total", "-", 790, 93, 116, 999

@@ -39,6 +39,9 @@ pub struct SequenceHeader {
     pub enable_restoration: u8,              // 1 bit
     pub color_config: ColorConfig,
     pub film_grain_params_present: u8,       // 1 bit
+    pub frame_id_numbers_present_flag: u8,   // 1 bit
+    pub reduced_still_picture_header: u8,    // 1 bit
+    pub decoder_model_info_present_flag: u8, // 1 bit
 }
 
 // 5.5.3 Timing info syntax
@@ -97,7 +100,7 @@ impl SequenceHeader {
         let reduced_still_picture_header = r.read::<1, u8>()?; // 5
 
         let timing_info_present_flag: u8;
-        let decoder_model_info_present_flag: u8;
+        let mut decoder_model_info_present_flag: u8 = 0;
         let decoder_model_info: Option<DecoderModelInfo> = None;
         let initial_display_delay_present_flag: u8;
         let operating_points_cnt: u8;
@@ -346,6 +349,9 @@ impl SequenceHeader {
             enable_restoration,
             color_config,
             film_grain_params_present,
+            frame_id_numbers_present_flag,
+            reduced_still_picture_header,
+            decoder_model_info_present_flag,
         })
     }
 }
@@ -547,12 +553,11 @@ impl ColorConfig {
     }
 }
 
-
 impl std::fmt::Display for SequenceHeader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "OBU_Sequence_Header {{ seq_profile: {}, still_picture: {}, timing_info: {:?}, decoder_model_info: {:?}, operating_point_idc: {:?}, seq_level_idx: {:?}, seq_tier: {:?}, decoder_model_present_for_this_op: {:?}, operating_parameters_info: {:?}, initial_display_delay_present_for_this_op: {:?}, initial_display_delay_minus_1: {:?}, c_operating_point_idc: {}, max_frame_width_minus_one: {}, max_frame_height_minus_one: {}, delta_frame_id_length_minus_2: {:?}, additional_frame_id_length_minus_1: {:?}, use_128x128_superblock: {}, enable_filter_intra: {}, enable_intra_edge_filter: {}, enable_interintra_compound: {}, enable_masked_compound: {}, enable_warped_motion: {}, enable_dual_filter: {}, enable_order_hint: {}, enable_jnt_comp: {}, enable_ref_frame_mvs: {}, seq_force_screen_content_tools: {}, seq_force_integer_mv: {}, order_hint_bits: {}, enable_superres: {}, enable_cdef: {}, enable_restoration: {}, color_config: {:?}, film_grain_params_present: {} }}",
+            "OBU_Sequence_Header {{ seq_profile: {}, still_picture: {}, timing_info: {:?}, decoder_model_info: {:?}, operating_point_idc: {:?}, seq_level_idx: {:?}, seq_tier: {:?}, decoder_model_present_for_this_op: {:?}, operating_parameters_info: {:?}, initial_display_delay_present_for_this_op: {:?}, initial_display_delay_minus_1: {:?}, c_operating_point_idc: {}, max_frame_width_minus_one: {}, max_frame_height_minus_one: {}, delta_frame_id_length_minus_2: {:?}, additional_frame_id_length_minus_1: {:?}, use_128x128_superblock: {}, enable_filter_intra: {}, enable_intra_edge_filter: {}, enable_interintra_compound: {}, enable_masked_compound: {}, enable_warped_motion: {}, enable_dual_filter: {}, enable_order_hint: {}, enable_jnt_comp: {}, enable_ref_frame_mvs: {}, seq_force_screen_content_tools: {}, seq_force_integer_mv: {}, order_hint_bits: {}, enable_superres: {}, enable_cdef: {}, enable_restoration: {}, color_config: {:?}, film_grain_params_present: {}, frame_id_numbers_present_flag: {}, reduced_still_picture_header: {}, decoder_model_info_present_flag: {} }}",
             self.seq_profile,
             self.still_picture,
             self.timing_info,
@@ -586,7 +591,10 @@ impl std::fmt::Display for SequenceHeader {
             self.enable_cdef,
             self.enable_restoration,
             self.color_config,
-            self.film_grain_params_present
+            self.film_grain_params_present,
+            self.frame_id_numbers_present_flag,
+            self.reduced_still_picture_header,
+            self.decoder_model_info_present_flag,
         )
     }
 }

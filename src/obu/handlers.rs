@@ -1,3 +1,5 @@
+use crate::obu::sequence_header::SequenceHeader;
+
 use super::frame_header::FrameHeader;
 
 
@@ -17,3 +19,11 @@ pub fn decode_frame_wrapup() -> Result<(),std::io::Error> {
     log::debug!("obu->handlers->decode_frame_wrapup()");
     Ok(())
 }
+
+pub fn last_sequence_header() -> Result<SequenceHeader,std::io::Error> {
+    log::debug!("obu->handlers->last_sequence_header()");
+    
+    todo!();
+}
+
+// last sequence header var

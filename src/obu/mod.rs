@@ -3,6 +3,7 @@ mod handlers;
 mod sequence_header;
 
 use bitstream_io::FromBitStream;
+use frame_header::FrameHeader;
 use sequence_header::SequenceHeader;
 
 use crate::{Leb128, consts::OBU_TYPE};
@@ -70,7 +71,7 @@ impl OBU {
             it is a requirement of bitstream conformance that SeenFrameHeader is equal to 1. 
         */
         let frame_header = if header.obu_type == OBU_TYPE::OBU_REDUNDANT_FRAME_HEADER {
-            Some(FrameHeader::from_reader(r)?)
+            Some(FrameHeader::frame_header_obu(r,&handlers::last_sequence_header()?)?)
         } else {
             None
         };

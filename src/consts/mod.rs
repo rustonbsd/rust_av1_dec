@@ -1,6 +1,7 @@
 mod impls;
 pub const SELECT_SCREEN_CONTENT_TOOLS: u8 = 2u8;
 pub const SELECT_INTEGER_MV: u8 = 2u8;
+pub const NUM_REF_FRAMES: u8 = 8u8;
 
 
 /*
@@ -158,4 +159,18 @@ pub enum CHROMA_SAMPLE_POSITION {
     CSP_VERTICAL = 1,
     CSP_COLOCATED = 2,
     CSP_RESERVED = 3,
+}
+
+/*frame_type	Name of frame_type
+0	KEY_FRAME
+1	INTER_FRAME
+2	INTRA_ONLY_FRAME
+3	SWITCH_FRAME */
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[allow(non_camel_case_types)]
+pub enum FRAME_TYPE {
+    KEY_FRAME = 0,
+    INTER_FRAME = 1,
+    INTRA_ONLY_FRAME = 2,
+    SWITCH_FRAME = 3,
 }

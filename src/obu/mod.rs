@@ -1,27 +1,27 @@
-mod sequence_header;
+mod frame_header;
 mod handlers;
+mod sequence_header;
 
 use bitstream_io::FromBitStream;
 use sequence_header::SequenceHeader;
 
-use crate::{consts::OBU_TYPE, Leb128};
+use crate::{Leb128, consts::OBU_TYPE};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct OBU {
-    pub size: Leb128,          // leb128
-    pub header: ObuHeader,     // 16 bits
+    pub size: Leb128,                            // leb128
+    pub header: ObuHeader,                       // 16 bits
     pub sequence_header: Option<SequenceHeader>, // Add this field
-    pub temporal_delimiter: Option<TemporalDelimiter>
+    pub temporal_delimiter: Option<TemporalDelimiter>,
 }
-
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ObuHeader {
-    pub forbidden_bit: u8,                              // 1 bit
-    pub obu_type: OBU_TYPE,                                 // 4 bits
-    pub extension_flag: u8,                             // 1 bit
-    pub has_size_field: u8,                             // 1 bit
-    pub reserved_1bit: u8,                              // 1 bit
+    pub forbidden_bit: u8,                            // 1 bit
+    pub obu_type: OBU_TYPE,                           // 4 bits
+    pub extension_flag: u8,                           // 1 bit
+    pub has_size_field: u8,                           // 1 bit
+    pub reserved_1bit: u8,                            // 1 bit
     pub extension_header: Option<ObuExtensionHeader>, // 8 bits
 }
 
@@ -31,7 +31,6 @@ pub struct ObuExtensionHeader {
     pub spatial_id: u8,                      // 2 bits
     pub extension_header_reserved_3bits: u8, // 3 bits
 }
-
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TemporalDelimiter {
@@ -56,8 +55,25 @@ impl OBU {
             None
         };
         let temporal_delimiter = if header.obu_type == OBU_TYPE::OBU_TEMPORAL_DELIMITER {
-            Some(TemporalDelimiter { seen_frame_header: 0 })
-        } else {None};
+            Some(TemporalDelimiter {
+                seen_frame_header: 0,
+            })
+        } else {
+            None
+        };
+
+        /*
+            If obu_type is equal to OBU_FRAME_HEADER or obu_type is equal to OBU_FRAME, 
+            it is a requirement of bitstream conformance that SeenFrameHeader is equal to 0.
+            
+            If obu_type is equal to OBU_REDUNDANT_FRAME_HEADER, 
+            it is a requirement of bitstream conformance that SeenFrameHeader is equal to 1. 
+        */
+        let frame_header = if header.obu_type == OBU_TYPE::OBU_REDUNDANT_FRAME_HEADER {
+            Some(FrameHeader::from_reader(r)?)
+        } else {
+            None
+        };
 
         Ok(OBU {
             size: obu_size,

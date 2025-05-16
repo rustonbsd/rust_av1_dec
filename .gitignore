@@ -19,4 +19,7 @@ target/
 # Added by cargo
 
 /target
+.DS_Store
+.vscode/launch.json
 .VSCodeCounter/
+.vscode/

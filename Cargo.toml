@@ -8,3 +8,4 @@ description = "pure rust av1 decoder project"
 [dependencies]
 bitstream-io ={ version = "4.0.0" }
 log = "0.4.27"
+mp4parse = { version = "0.17.0", features = ["unstable-api"] }

@@ -23,9 +23,6 @@ impl OBU {
             leb_128::new(sz - 1 - header.obu_extension_flag as u64)
         };
 
-        println!("OBU size: {}", obu_size.value);
-        println!("OBU header: {:?}", header);
-
         let obu_sequence_header = if header.obu_type == OBU_TYPE::OBU_SEQUENCE_HEADER {
             Some(OBU_Sequence_Header::sequence_header_obu(r)?)
         } else {
@@ -330,7 +327,7 @@ impl OBU_Sequence_Header {
             }
 
             let seq_choose_screen_content_tools = r.read::<1, u8>()?;
-            if seq_choose_screen_content_tools != 0 {
+            if seq_choose_screen_content_tools == 0 {
                 seq_force_screen_content_tools = r.read::<1, u8>()?;
             }
 

@@ -1,114 +1,92 @@
 use bitstream_io::FromBitStream;
 
-use crate::{
-    consts::{self, OBU_TYPE},
-    generics::uvlc,
-    leb_128,
-};
+use crate::{consts, generics::Uvlc};
 
-use super::{
-    Color_Config, Decoder_Model_Info, OBU, OBU_Extension_Header, OBU_Header, OBU_Sequence_Header,
-    Operating_Parameters_Info, Timing_Info, handlers::choose_operating_point,
-};
 
-impl OBU {
-    pub fn open_bitstream_unit<R: bitstream_io::BitRead + ?Sized>(
-        r: &mut R,
-        sz: u64,
-    ) -> Result<OBU, std::io::Error> {
-        let header = OBU_Header::from_reader(r)?;
-        let obu_size = if header.obu_has_size_field != 0 {
-            leb_128::from_reader(r)?
-        } else {
-            leb_128::new(sz - 1 - header.obu_extension_flag as u64)
-        };
-
-        let obu_sequence_header = if header.obu_type == OBU_TYPE::OBU_SEQUENCE_HEADER {
-            Some(OBU_Sequence_Header::sequence_header_obu(r)?)
-        } else {
-            None
-        };
-
-        Ok(OBU {
-            obu_size,
-            obu_header: header,
-            obu_sequence_header: obu_sequence_header, // Include this field
-        })
-    }
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct SequenceHeader {
+    pub seq_profile: u8,                    // 3 bits
+    pub still_picture: u8,                  // 1 bit
+    pub timing_info: Option<TimingInfo>,
+    pub decoder_model_info: Option<DecoderModelInfo>,
+    pub operating_point_idc: Vec<u16>,      // 12 bits
+    pub seq_level_idx: Vec<u8>,                  // 5 bits
+    pub seq_tier: Vec<u8>,                       // 1 bit
+    pub decoder_model_present_for_this_op: Vec<u8>, // 1 bit
+    pub operating_parameters_info: Option<OperatingParametersInfo>,
+    pub initial_display_delay_present_for_this_op: Vec<u8>, // 1 bit
+    pub initial_display_delay_minus_1: Option<Vec<u8>>,    // 4 bits
+    pub c_operating_point_idc: u16,         // 12 bits
+    pub max_frame_width_minus_one: u16,     //  2**frame_width_bits_minus_1+1 
+    pub max_frame_height_minus_one: u16,    //  2**frame_height_bits_minus_1+1
+    pub delta_frame_id_length_minus_2: Option<u8>, // 4 bits
+    pub additional_frame_id_length_minus_1: Option<u8>, // 3 bits
+    pub use_128x128_superblock: u8,         // 1 bit
+    pub enable_filter_intra: u8,             // 1 bit
+    pub enable_intra_edge_filter: u8,        // 1 bit
+    pub enable_interintra_compound: u8,      // 1 bit
+    pub enable_masked_compound: u8,          // 1 bit
+    pub enable_warped_motion: u8,            // 1 bit
+    pub enable_dual_filter: u8,              // 1 bit
+    pub enable_order_hint: u8,               // 1 bit
+    pub enable_jnt_comp: u8,                 // 1 bit
+    pub enable_ref_frame_mvs: u8,            // 1 bit
+    pub seq_force_screen_content_tools: u8, // 1 bit
+    pub seq_force_integer_mv: u8,           // 1 bit
+    pub order_hint_bits: u8,                 // 3 bits
+    pub enable_superres: u8,                 // 1 bit
+    pub enable_cdef: u8,                     // 1 bit
+    pub enable_restoration: u8,              // 1 bit
+    pub color_config: ColorConfig,
+    pub film_grain_params_present: u8,       // 1 bit
 }
 
-impl FromBitStream for OBU {
-    type Error = std::io::Error;
-
-    fn from_reader<R: bitstream_io::BitRead + ?Sized>(r: &mut R) -> Result<Self, Self::Error>
-    where
-        Self: Sized,
-    {
-        let obu_header = OBU_Header::from_reader(r)?;
-        let obu_size = leb_128::from_reader(r)?;
-
-        // Add sequence header parsing if this is a sequence header OBU
-        let obu_sequence_header = if obu_header.obu_type == OBU_TYPE::OBU_SEQUENCE_HEADER {
-            Some(OBU_Sequence_Header::sequence_header_obu(r)?)
-        } else {
-            None
-        };
-
-        Ok(Self {
-            obu_size,
-            obu_header,
-            obu_sequence_header,
-        })
-    }
+// 5.5.3 Timing info syntax
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct TimingInfo {
+    pub num_units_in_display_tick: u32,                 // 32 bits
+    pub time_scale: u32,                        // 32 bits
+    pub equal_picture_interval: u8,             //  1 bit
+    pub num_ticks_per_picture_minus_1: Option<Uvlc>,   // UVLC
 }
 
-impl FromBitStream for OBU_Header {
-    type Error = std::io::Error;
-
-    fn from_reader<R: bitstream_io::BitRead + ?Sized>(r: &mut R) -> Result<Self, Self::Error>
-    where
-        Self: Sized,
-    {
-        let obu_forbidden_bit = r.read::<1, u8>()?;
-        let obu_type = OBU_TYPE::from_reader(r)?;
-        let obu_extension_flag = r.read::<1, u8>()?;
-        let obu_has_size_field = r.read::<1, u8>()?;
-        let obu_reserved_1bit = r.read::<1, u8>()?;
-        let obu_extension_header = if obu_extension_flag != 0 {
-            Some(OBU_Extension_Header::from_reader(r)?)
-        } else {
-            None
-        };
-
-        Ok(Self {
-            obu_forbidden_bit,
-            obu_type,
-            obu_extension_flag,
-            obu_has_size_field,
-            obu_reserved_1bit,
-            obu_extension_header,
-        })
-    }
+// 5.5.4 Decoder model info
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct DecoderModelInfo {
+    pub buffer_delay_length_minus_1: u8,   // 5 bits
+    pub num_units_in_decoding_tick: u32,   // 32 bits
+    pub buffer_removal_delay_length_minus_1: u8, // 5 bits
+    pub frame_presentation_delay_length_minus_1: u8, // 5 bits
 }
 
-impl FromBitStream for OBU_Extension_Header {
-    type Error = std::io::Error;
-
-    fn from_reader<R: bitstream_io::BitRead + ?Sized>(r: &mut R) -> Result<Self, Self::Error>
-    where
-        Self: Sized,
-    {
-        Ok(Self {
-            temporal_id: r.read::<3, u8>()?,
-            spatial_id: r.read::<2, u8>()?,
-            extension_header_reserved_3bits: r.read::<3, u8>()?,
-        })
-    }
+// 5.5.5 Operating parameters info
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct OperatingParametersInfo {
+    pub decoder_buffer_delay: Vec<u32>, // 2**5=32 bits max
+    pub encoder_buffer_delay: Vec<u32>, // 2**5=32 bits max
+    pub low_delay_mode_flag: Vec<u8>,   // 1 bit
 }
 
-impl OBU_Sequence_Header {
+// 5.5.2 Color Config
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct ColorConfig {
+    pub bit_depth: u8,
+    pub mono_chrome: u8,
+    pub num_planes: u8,
+    pub color_primaries: consts::COLOR_PRIMARIES,
+    pub transfer_characteristics: consts::TRANSFER_CHARACTERISTICS,
+    pub matrix_coefficients: consts::MATRIX_COEFFICIENTS,
+    pub color_range: u8,
+    pub subsampling_x: u8,
+    pub subsampling_y: u8,
+    pub chroma_sample_position: consts::CHROMA_SAMPLE_POSITION,
+    pub separate_uv_delta_q: u8,
+}
+
+
+impl SequenceHeader {
     // 5.5.1 General sequence header OBU syntax
-    fn sequence_header_obu<R: bitstream_io::BitRead + ?Sized>(
+    pub fn sequence_header_obu<R: bitstream_io::BitRead + ?Sized>(
         r: &mut R,
     ) -> Result<Self, std::io::Error>
     where
@@ -118,21 +96,21 @@ impl OBU_Sequence_Header {
         let still_picture = r.read::<1, u8>()?; // 4
         let reduced_still_picture_header = r.read::<1, u8>()?; // 5
 
-        let mut timing_info_present_flag: u8 = 0u8;
-        let mut decoder_model_info_present_flag: u8 = 0u8;
-        let mut decoder_model_info: Option<Decoder_Model_Info> = None;
-        let mut initial_display_delay_present_flag: u8 = 0u8;
-        let mut operating_points_cnt: u8 = 0u8;
+        let timing_info_present_flag: u8;
+        let decoder_model_info_present_flag: u8;
+        let decoder_model_info: Option<DecoderModelInfo> = None;
+        let initial_display_delay_present_flag: u8;
+        let operating_points_cnt: u8;
         let mut operating_point_idc: Vec<u16> = vec![0u16];
 
         let mut seq_level_idx: Vec<u8> = vec![];
 
         let mut seq_tier: Vec<u8> = vec![0u8];
         let mut decoder_model_present_for_this_op: Vec<u8> = vec![0u8];
-        let mut operating_parameters_info: Option<Operating_Parameters_Info> = None;
+        let mut operating_parameters_info: Option<OperatingParametersInfo> = None;
         let mut initial_display_delay_present_for_this_op: Vec<u8> = vec![0u8];
         let mut initial_display_delay_minus_1: Option<Vec<u8>> = None;
-        let mut timing_info: Option<Timing_Info> = None;
+        let mut timing_info: Option<TimingInfo> = None;
 
         if reduced_still_picture_header != 0 {
             seq_level_idx.push(r.read::<5, u8>()?); // 10
@@ -141,7 +119,7 @@ impl OBU_Sequence_Header {
 
             // Timing_Info
             if timing_info_present_flag == 1 {
-                timing_info = Some(Timing_Info::from_reader(r)?);
+                timing_info = Some(TimingInfo::from_reader(r)?);
             }
 
             // Decoder_Model_Info
@@ -151,9 +129,9 @@ impl OBU_Sequence_Header {
                 0u8
             };
 
-            let decoder_model_info: Option<Decoder_Model_Info> =
+            let decoder_model_info: Option<DecoderModelInfo> =
                 if decoder_model_info_present_flag != 0u8 {
-                    Some(Decoder_Model_Info::from_reader(r)?)
+                    Some(DecoderModelInfo::from_reader(r)?)
                 } else {
                     None
                 };
@@ -200,7 +178,7 @@ impl OBU_Sequence_Header {
                         })?;
 
                         if operating_parameters_info.is_none() {
-                            operating_parameters_info = Some(Operating_Parameters_Info::new());
+                            operating_parameters_info = Some(OperatingParametersInfo::new());
                         }
                         operating_parameters_info
                             .as_mut()
@@ -329,7 +307,7 @@ impl OBU_Sequence_Header {
         let enable_restoration = r.read::<1, u8>()?;
 
         // Color config
-        let color_config = Color_Config::from_reader(r, seq_profile)?;
+        let color_config = ColorConfig::from_reader(r, seq_profile)?;
 
         let film_grain_params_present = r.read::<1, u8>()?;
 
@@ -372,7 +350,7 @@ impl OBU_Sequence_Header {
     }
 }
 
-impl FromBitStream for Timing_Info {
+impl FromBitStream for TimingInfo {
     type Error = std::io::Error;
 
     fn from_reader<R: bitstream_io::BitRead + ?Sized>(r: &mut R) -> Result<Self, Self::Error>
@@ -383,8 +361,8 @@ impl FromBitStream for Timing_Info {
         let time_scale = r.read::<32, u32>()?;
         let equal_picture_interval = r.read::<1, u8>()?;
         let num_ticks_per_picture_minus_1 = if equal_picture_interval == 1 {
-            Some(uvlc::from_reader(r)?);
-            Some(uvlc::new(0 + 1u32))
+            Some(Uvlc::from_reader(r)?);
+            Some(Uvlc::new(0 + 1u32))
         } else {
             None
         };
@@ -398,7 +376,7 @@ impl FromBitStream for Timing_Info {
     }
 }
 
-impl FromBitStream for Decoder_Model_Info {
+impl FromBitStream for DecoderModelInfo {
     type Error = std::io::Error;
 
     fn from_reader<R: bitstream_io::BitRead + ?Sized>(r: &mut R) -> Result<Self, Self::Error>
@@ -419,7 +397,7 @@ impl FromBitStream for Decoder_Model_Info {
     }
 }
 
-impl Operating_Parameters_Info {
+impl OperatingParametersInfo {
     pub fn new() -> Self {
         Self {
             decoder_buffer_delay: Vec::new(),
@@ -431,7 +409,7 @@ impl Operating_Parameters_Info {
     fn from_reader<R: bitstream_io::BitRead + ?Sized>(
         &mut self,
         r: &mut R,
-        decoder_model_info: &Decoder_Model_Info,
+        decoder_model_info: &DecoderModelInfo,
     ) -> Result<(), std::io::Error>
     where
         Self: Sized,
@@ -444,7 +422,7 @@ impl Operating_Parameters_Info {
     }
 }
 
-impl Color_Config {
+impl ColorConfig {
     fn from_reader<R: bitstream_io::BitRead + ?Sized>(
         r: &mut R,
         seq_profile: u8,
@@ -569,42 +547,8 @@ impl Color_Config {
     }
 }
 
-impl std::fmt::Display for OBU {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "OBU {{ obu_size: {}, obu_header: {}, obu_sequence_header: {:?} }}",
-            self.obu_size, self.obu_header, self.obu_sequence_header
-        )
-    }
-}
 
-impl std::fmt::Display for OBU_Header {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "OBU_Header {{ obu_forbidden_bit: {}, obu_type: {:?}, obu_extension_flag: {}, obu_has_size_field: {}, obu_reserved_1bit: {}, obu_extension_header: {:?} }}",
-            self.obu_forbidden_bit,
-            self.obu_type,
-            self.obu_extension_flag,
-            self.obu_has_size_field,
-            self.obu_reserved_1bit,
-            self.obu_extension_header
-        )
-    }
-}
-
-impl std::fmt::Display for OBU_Extension_Header {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "OBU_Extension_Header {{ temporal_id: {}, spatial_id: {}, extension_header_reserved_3bits: {} }}",
-            self.temporal_id, self.spatial_id, self.extension_header_reserved_3bits
-        )
-    }
-}
-
-impl std::fmt::Display for OBU_Sequence_Header {
+impl std::fmt::Display for SequenceHeader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -647,7 +591,7 @@ impl std::fmt::Display for OBU_Sequence_Header {
     }
 }
 
-impl std::fmt::Display for Timing_Info {
+impl std::fmt::Display for TimingInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -660,7 +604,7 @@ impl std::fmt::Display for Timing_Info {
     }
 }
 
-impl std::fmt::Display for Decoder_Model_Info {
+impl std::fmt::Display for DecoderModelInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -673,7 +617,7 @@ impl std::fmt::Display for Decoder_Model_Info {
     }
 }
 
-impl std::fmt::Display for Operating_Parameters_Info {
+impl std::fmt::Display for OperatingParametersInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -683,7 +627,7 @@ impl std::fmt::Display for Operating_Parameters_Info {
     }
 }
 
-impl std::fmt::Display for Color_Config {
+impl std::fmt::Display for ColorConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,

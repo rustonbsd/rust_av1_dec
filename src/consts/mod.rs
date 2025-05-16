@@ -19,6 +19,7 @@ color_primaries	Name of color primaries	Description
 22	CP_EBU_3213	EBU Tech. 3213-E
 */
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[allow(non_camel_case_types)]
 pub enum COLOR_PRIMARIES {
     CP_BT_709 = 1,
     CP_UNSPECIFIED = 2,
@@ -57,6 +58,7 @@ transfer_characteristics	Name of transfer characteristics	Description
 17	TC_SMPTE_428	SMPTE ST 428
 18	TC_HLG	BT.2100 HLG, ARIB STD-B67 */
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[allow(non_camel_case_types)]
 pub enum TRANSFER_CHARACTERISTICS {
     TC_RESERVED_0 = 0,
     TC_BT_709 = 1,
@@ -97,6 +99,7 @@ pub enum TRANSFER_CHARACTERISTICS {
 13	MC_CHROMAT_CL	Chromaticity-derived constant luminance
 14	MC_ICTCP	BT.2100 ICtCp */
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[allow(non_camel_case_types)]
 pub enum MATRIX_COEFFICIENTS {
     MC_IDENTITY = 0,
     MC_BT_709 = 1,
@@ -129,6 +132,7 @@ pub enum MATRIX_COEFFICIENTS {
 9-14	Reserved	-
 15	OBU_PADDING	Either */
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[allow(non_camel_case_types)]
 pub enum OBU_TYPE {
     OBU_SEQUENCE_HEADER = 1,
     OBU_TEMPORAL_DELIMITER = 2,
@@ -148,6 +152,7 @@ pub enum OBU_TYPE {
 3	CSP_RESERVED	 
  */
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[allow(non_camel_case_types)]
 pub enum CHROMA_SAMPLE_POSITION {
     CSP_UNKNOWN = 0,
     CSP_VERTICAL = 1,

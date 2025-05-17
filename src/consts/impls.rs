@@ -1,6 +1,6 @@
 use bitstream_io::{FromBitStream, ToBitStream};
 
-use super::{CHROMA_SAMPLE_POSITION, COLOR_PRIMARIES, MATRIX_COEFFICIENTS, OBU_TYPE, TRANSFER_CHARACTERISTICS};
+use super::{CHROMA_SAMPLE_POSITION, COLOR_PRIMARIES, FRAME_TYPE, MATRIX_COEFFICIENTS, OBU_TYPE, TRANSFER_CHARACTERISTICS};
 
 impl ToBitStream for OBU_TYPE {
     type Error = std::io::Error;
@@ -141,6 +141,22 @@ impl FromBitStream for CHROMA_SAMPLE_POSITION {
             2 => Ok(Self::CSP_COLOCATED),
             3 => Ok(Self::CSP_RESERVED),
             _ => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid CHROMA_SAMPLE_POSITION"))
+        }
+    }
+}
+
+impl FromBitStream for FRAME_TYPE {
+    type Error = std::io::Error;
+
+    fn from_reader<R: bitstream_io::BitRead + ?Sized>(r: &mut R) -> Result<Self, Self::Error>
+    where
+        Self: Sized {
+        match r.read::<2,u8>()? {
+            0 => Ok(Self::KEY_FRAME),
+            1 => Ok(Self::INTER_FRAME),
+            2 => Ok(Self::INTRA_ONLY_FRAME),
+            3 => Ok(Self::SWITCH_FRAME),
+            _ => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid FRAME_TYPE"))
         }
     }
 }

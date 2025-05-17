@@ -1,12 +1,14 @@
 mod frame_header;
-mod handlers;
+mod context;
 mod sequence_header;
 
 use bitstream_io::FromBitStream;
+use context::DecoderContext;
 use frame_header::FrameHeader;
 use sequence_header::SequenceHeader;
 
 use crate::{Leb128, consts::OBU_TYPE};
+
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct OBU {
@@ -42,6 +44,7 @@ impl OBU {
     pub fn open_bitstream_unit<R: bitstream_io::BitRead + ?Sized>(
         r: &mut R,
         sz: u64,
+        ctx: &mut DecoderContext,
     ) -> Result<OBU, std::io::Error> {
         let header = ObuHeader::from_reader(r)?;
         let obu_size = if header.has_size_field != 0 {
@@ -71,7 +74,13 @@ impl OBU {
             it is a requirement of bitstream conformance that SeenFrameHeader is equal to 1. 
         */
         let frame_header = if header.obu_type == OBU_TYPE::OBU_REDUNDANT_FRAME_HEADER {
-            Some(FrameHeader::frame_header_obu(r,&handlers::last_sequence_header()?)?)
+            if ctx.last_frame_header.is_none() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "No last frame header",
+                ));
+            }
+            Some(FrameHeader::frame_header_obu(r,ctx)?)
         } else {
             None
         };

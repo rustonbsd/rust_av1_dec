@@ -98,7 +98,7 @@ impl FrameHeader {
                         std::io::Error::new(std::io::ErrorKind::InvalidData, "Id len not present")
                     })? as u32)?;
                 }
-                let ref_frame_type = context::RefFrameType()?;
+                let ref_frame_type = ctx.ref_frame_type;
                 frame_type = ref_frame_type[frame_to_show_map_index as usize];
 
                 if frame_type == FRAME_TYPE::KEY_FRAME {

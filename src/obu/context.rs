@@ -9,6 +9,7 @@ pub struct DecoderContext {
     pub last_frame_header: Option<FrameHeader>,
 
     // Reference Frame Management
+    pub ref_frame_type: [FRAME_TYPE; NUM_REF_FRAMES as usize],
     pub ref_valid: [u8; NUM_REF_FRAMES as usize],
     pub ref_order_hint: [u8; NUM_REF_FRAMES as usize],
     pub order_hints: Vec<u8>,
@@ -21,6 +22,7 @@ impl DecoderContext {
             last_sequence_header: None,
             last_frame_header: None,
 
+            ref_frame_type: [FRAME_TYPE::KEY_FRAME; NUM_REF_FRAMES as usize],
             ref_valid: [0; NUM_REF_FRAMES as usize],
             ref_order_hint: [0; NUM_REF_FRAMES as usize],
             order_hints: [0; REFS_PER_FRAME as usize].to_vec(),

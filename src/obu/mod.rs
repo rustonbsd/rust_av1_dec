@@ -1,5 +1,5 @@
 mod frame_header;
-mod context;
+pub mod context;
 mod sequence_header;
 
 use bitstream_io::FromBitStream;

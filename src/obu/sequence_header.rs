@@ -9,6 +9,7 @@ pub struct SequenceHeader {
     pub still_picture: u8,                  // 1 bit
     pub timing_info: Option<TimingInfo>,
     pub decoder_model_info: Option<DecoderModelInfo>,
+    pub operating_points_cnt: u8,           // 5 bits
     pub operating_point_idc: Vec<u16>,      // 12 bits
     pub seq_level_idx: Vec<u8>,                  // 5 bits
     pub seq_tier: Vec<u8>,                       // 1 bit
@@ -103,7 +104,7 @@ impl SequenceHeader {
         let mut decoder_model_info_present_flag: u8 = 0;
         let decoder_model_info: Option<DecoderModelInfo> = None;
         let initial_display_delay_present_flag: u8;
-        let operating_points_cnt: u8;
+        let mut operating_points_cnt: u8 = 0;
         let mut operating_point_idc: Vec<u16> = vec![0u16];
 
         let mut seq_level_idx: Vec<u8> = vec![];
@@ -319,6 +320,7 @@ impl SequenceHeader {
             still_picture,
             timing_info,
             decoder_model_info,
+            operating_points_cnt,
             operating_point_idc,
             seq_level_idx,
             seq_tier,

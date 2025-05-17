@@ -3,6 +3,7 @@ pub const SELECT_SCREEN_CONTENT_TOOLS: u8 = 2u8;
 pub const SELECT_INTEGER_MV: u8 = 2u8;
 pub const NUM_REF_FRAMES: u8 = 8u8;
 pub const REFS_PER_FRAME: u8 = 7u8;
+pub const PRIMARY_REF_NONE: u8 = 7u8;
 
 
 /*

@@ -47,6 +47,8 @@ impl OBU {
         ctx: &mut DecoderContext,
     ) -> Result<OBU, std::io::Error> {
         let header = ObuHeader::from_reader(r)?;
+        ctx.obu_header = Some(header.clone());
+        
         let obu_size = if header.has_size_field != 0 {
             Leb128::from_reader(r)?
         } else {

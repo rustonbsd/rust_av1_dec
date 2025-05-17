@@ -1,8 +1,10 @@
 use bitstream_io::FromBitStream;
 
 use crate::{
-    consts::{FRAME_TYPE, NUM_REF_FRAMES, REFS_PER_FRAME},
-    obu::context,
+    consts::{
+        FRAME_TYPE, NUM_REF_FRAMES, PRIMARY_REF_NONE, REFS_PER_FRAME, SELECT_INTEGER_MV, SELECT_SCREEN_CONTENT_TOOLS
+    },
+    obu::{context, sequence_header::TimingInfo},
 };
 
 use super::{context::DecoderContext, sequence_header::SequenceHeader};
@@ -18,7 +20,7 @@ impl FrameHeader {
     where
         Self: Sized,
     {
-        let sequence_header = ctx.last_sequence_header.as_ref().ok_or_else(|| {
+        let sequence_header = ctx.last_sequence_header.clone().ok_or_else(|| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, "No last sequence header")
         })?;
 
@@ -55,7 +57,7 @@ impl FrameHeader {
         let showable_frame: u8;
         let frame_to_show_map_index: u8;
         let mut refresh_frame_flag: u8;
-        let error_resilient_mode: u8;
+        let mut error_resilient_mode: Option<u8> = None;
 
         // It is a requirement of bitstream conformance
         // that the number of bits needed to read display_frame_id does not exceed 16.
@@ -147,9 +149,9 @@ impl FrameHeader {
             if frame_type == FRAME_TYPE::SWITCH_FRAME
                 || (frame_type == FRAME_TYPE::KEY_FRAME && show_frame != 0)
             {
-                error_resilient_mode = 1;
+                error_resilient_mode = Some(1);
             } else {
-                error_resilient_mode = r.read::<1, u8>()?;
+                error_resilient_mode = Some(r.read::<1, u8>()?);
             }
         } else {
             show_existing_frame = 0;
@@ -159,12 +161,14 @@ impl FrameHeader {
             frame_is_intra = 1;
         }
 
-        // RefValid[ i ] should be set equal to 0 for i = 0..NUM_REF_FRAMES-1 before the decoding process begins
-        let mut ref_valid: [u8; NUM_REF_FRAMES as usize] = [0; NUM_REF_FRAMES as usize];
-
-        // The decoding process for the frame does not use values in RefOrderHint before they have been written
-        // (written either by the decoding process for the current frame, or written when a previous frame was processed)
-        let mut ref_order_hint: [u8; NUM_REF_FRAMES as usize] = [0; NUM_REF_FRAMES as usize];
+        let disable_cdf_update: u8;
+        let allow_screen_content_tools: u8;
+        let mut force_integer_mv: u8;
+        let frame_size_override_flag: u8;
+        let order_hint: u8;
+        let primary_ref_frame: u8;  // 3 bits
+        let buffer_removal_time_present: u8;
+        let mut buffer_removal_time: Option<Vec<u32>>;
 
         if frame_type == FRAME_TYPE::KEY_FRAME && showable_frame != 0 {
             ctx.ref_valid = [0; NUM_REF_FRAMES as usize];
@@ -179,6 +183,112 @@ impl FrameHeader {
         }
 
         // next up disable_cdf_update #1
+        disable_cdf_update = r.read::<1, u8>()?;
+        if sequence_header.seq_force_screen_content_tools == SELECT_SCREEN_CONTENT_TOOLS {
+            allow_screen_content_tools = r.read::<1, u8>()?;
+        } else {
+            allow_screen_content_tools = sequence_header.seq_force_screen_content_tools;
+        }
+        if allow_screen_content_tools != 0 {
+            if sequence_header.seq_force_integer_mv == SELECT_INTEGER_MV {
+                force_integer_mv = r.read::<1, u8>()?;
+            } else {
+                force_integer_mv = sequence_header.seq_force_integer_mv;
+            }
+        } else {
+            force_integer_mv = 0;
+        }
+
+        if frame_is_intra != 0 {
+            force_integer_mv = 1;
+        }
+
+        if sequence_header.frame_id_numbers_present_flag != 0 {
+            ctx.prev_frame_id = ctx.current_frame_id;
+            ctx.current_frame_id = Some(r.read_var(id_len.ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "Id len not present")
+            })? as u32)?);
+            ctx.mark_ref_frames(id_len.ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "Id len not present")
+            })?)?;
+        } else {
+            ctx.current_frame_id = Some(0);
+        }
+
+        if frame_type == FRAME_TYPE::SWITCH_FRAME {
+            frame_size_override_flag = 0;
+        } else {
+            frame_size_override_flag = r.read::<1, u8>()?;
+        }
+
+        order_hint = r.read_var(sequence_header.order_hint_bits as u32)?;
+        ctx.order_hint = order_hint;
+
+        if frame_is_intra != 0 || (error_resilient_mode.is_some() && error_resilient_mode.unwrap() != 0){
+            primary_ref_frame = PRIMARY_REF_NONE;
+        } else {
+            primary_ref_frame = r.read::<3, u8>()?;
+        }
+
+        if sequence_header.decoder_model_info_present_flag != 0 {
+            buffer_removal_time_present = r.read::<1, u8>()?;
+            if buffer_removal_time_present != 0 {
+                /*for ( opNum = 0; opNum <= operating_points_cnt_minus_1; opNum++ ) {	 
+                if ( decoder_model_present_for_this_op[ opNum ] ) {	 
+                    opPtIdc = operating_point_idc[ opNum ]	 
+                    inTemporalLayer = ( opPtIdc >> temporal_id ) & 1	 
+                    inSpatialLayer = ( opPtIdc >> ( spatial_id + 8 ) ) & 1	 
+                    if ( opPtIdc == 0 || ( inTemporalLayer && inSpatialLayer ) ) {	 
+                        n = buffer_removal_time_length_minus_1 + 1	 
+                        buffer_removal_time[ opNum ]	f(n)
+                    }	 
+                }	 
+            } */
+                for op_num in 0..sequence_header.operating_points_cnt as usize {
+                    if sequence_header.decoder_model_present_for_this_op.len() > op_num && sequence_header.operating_point_idc.len() > op_num && sequence_header.decoder_model_present_for_this_op[op_num] != 0 {
+                        let op_pt_idc = sequence_header.operating_point_idc[op_num];
+
+                        // temporal_id specifies the temporal level of the data contained in the OBU. 
+                        // In layer-specific OBUs, when temporal_id is not present it is inferred to be equal to 0.
+                        let temporal_id = if let Some(obu_header) = ctx.obu_header.clone() {
+                            if let Some(extension_header) = obu_header.extension_header {
+                                extension_header.temporal_id
+                            } else {
+                                0
+                            }
+                        } else {
+                            0
+                        };
+                        let in_temporal_layer = (op_pt_idc >> temporal_id) & 1;
+
+                        // spatial_id specifies the spatial level of the data contained in the OBU. 
+                        // In layer-specific OBUs, when spatial_id is not present it is inferred to be equal to 0.
+                        let spatial_id = if let Some(obu_header) = ctx.obu_header.clone() {
+                            if let Some(extension_header) = obu_header.extension_header {
+                                extension_header.spatial_id
+                            } else {
+                                0
+                            }
+                        } else {
+                            0
+                        };
+                        let in_spatial_layer = (op_pt_idc >> (spatial_id + 8)) & 1;
+
+                        if op_pt_idc == 0 || (in_temporal_layer != 0 && in_spatial_layer != 0) {
+                            let n = sequence_header.decoder_model_info.clone().ok_or_else(|| {
+                                std::io::Error::new(
+                                    std::io::ErrorKind::InvalidData,
+                                    "Decoder model info not present",
+                                )
+                            })?.buffer_removal_delay_length_minus_1 + 1;
+                            
+                            // next impl buffer_removal_time
+                        }
+                    }
+                }
+                    
+            }
+        }
 
         todo!()
     }

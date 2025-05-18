@@ -20,6 +20,8 @@ pub struct SequenceHeader {
     pub c_operating_point_idc: u16,         // 12 bits
     pub max_frame_width_minus_one: u16,     //  2**frame_width_bits_minus_1+1 
     pub max_frame_height_minus_one: u16,    //  2**frame_height_bits_minus_1+1
+    pub frame_width_bits: u8,                // 4 bits
+    pub frame_height_bits: u8,               // 4 bits
     pub delta_frame_id_length_minus_2: Option<u8>, // 4 bits
     pub additional_frame_id_length_minus_1: Option<u8>, // 3 bits
     pub use_128x128_superblock: u8,         // 1 bit
@@ -331,6 +333,8 @@ impl SequenceHeader {
             c_operating_point_idc,
             max_frame_width_minus_one: max_frame_width,
             max_frame_height_minus_one: max_frame_height,
+            frame_width_bits,
+            frame_height_bits,
             delta_frame_id_length_minus_2,
             additional_frame_id_length_minus_1,
             use_128x128_superblock,

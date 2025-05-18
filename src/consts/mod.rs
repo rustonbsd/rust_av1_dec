@@ -4,7 +4,9 @@ pub const SELECT_INTEGER_MV: u8 = 2u8;
 pub const NUM_REF_FRAMES: u8 = 8u8;
 pub const REFS_PER_FRAME: u8 = 7u8;
 pub const PRIMARY_REF_NONE: u8 = 7u8;
-
+pub const SUPERRES_DENOM_BITS: u8 = 3u8;
+pub const SUPERRES_DENOM_MIN: u8 = 9u8;
+pub const SUPERRES_NUM: u8 = 8u8;
 
 /*
 color_primaries	Name of color primaries	Description

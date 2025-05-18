@@ -3,7 +3,7 @@ use crate::{
     obu::sequence_header::SequenceHeader,
 };
 
-use super::{frame_header::FrameHeader, ObuHeader};
+use super::{frame_header::{FrameHeader, FrameSize, RenderSize}, ObuHeader};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct DecoderContext {
@@ -15,9 +15,13 @@ pub struct DecoderContext {
     pub ref_frame_type: [FRAME_TYPE; NUM_REF_FRAMES as usize],
     pub ref_valid: [u8; NUM_REF_FRAMES as usize],
     pub ref_order_hint: [u8; NUM_REF_FRAMES as usize],
+    pub ref_frame_id: [u8; NUM_REF_FRAMES as usize],
+    
+    pub ref_frame_sizes: [FrameSize; NUM_REF_FRAMES as usize],
+    pub ref_frame_render_sizes: [RenderSize; NUM_REF_FRAMES as usize],
+
     pub order_hints: Vec<u8>,
     pub order_hint: u8,
-    pub ref_frame_id: [u8; NUM_REF_FRAMES as usize],
 
     pub last_frame_index: Option<usize>,
     pub prev_frame_id: Option<u8>,
@@ -37,6 +41,9 @@ impl DecoderContext {
             order_hints: [0; REFS_PER_FRAME as usize].to_vec(),
             order_hint: 0,
             ref_frame_id: [0; NUM_REF_FRAMES as usize],
+
+            ref_frame_sizes: [FrameSize::default(); NUM_REF_FRAMES as usize],
+            ref_frame_render_sizes: [RenderSize::default(); NUM_REF_FRAMES as usize],
 
             last_frame_index: None,
             prev_frame_id: None,
@@ -101,3 +108,9 @@ pub fn load_grain_params(frame_to_show_map_idx: u8) -> Result<(), std::io::Error
     log::debug!("obu->handlers->load_grain_params()");
     Ok(())
 }
+
+pub fn set_frame_refs() -> Result<(), std::io::Error> {
+    log::debug!("obu->handlers->set_frame_refs()");
+    Ok(())
+}
+

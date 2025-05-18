@@ -395,11 +395,27 @@ impl FrameHeader {
             if frame_size_override_flag != 0
                 && (error_resilient_mode.is_none() || error_resilient_mode.unwrap() == 0)
             {
-                // frame_size_with_refs( )
+                let (_frame_size, _render_size) = FrameSize::frame_size_with_refs(
+                    r,
+                    ref_frame_index,
+                    frame_size_override_flag,
+                    ctx,
+                )?;
+                frame_size = _frame_size;
+                render_size = _render_size;
             } else {
                 frame_size = FrameSize::frame_size(r, frame_size_override_flag, ctx)?;
                 render_size = RenderSize::render_size(r, &frame_size)?;
             }
+
+            // UP NEXT UP [!]
+            /*
+            if ( force_integer_mv ) {	 
+                allow_high_precision_mv = 0	 
+            } else {	 
+                allow_high_precision_mv	f(1)
+            }
+             */
         }
 
         todo!()
@@ -409,14 +425,66 @@ impl FrameHeader {
 impl FrameSize {
     pub fn frame_size_with_refs<R: bitstream_io::BitRead + ?Sized>(
         r: &mut R,
+        ref_frame_index: [u8; REFS_PER_FRAME as usize],
+        frame_size_override_flag: u8,
         ctx: &mut DecoderContext,
-    ) -> Result<Self, std::io::Error>
+    ) -> Result<(Self, RenderSize), std::io::Error>
     where
         Self: Sized,
     {
-        // [!] NEXT UP
+        let upscaled_width: u16;
+        let mut frame_width: u16;
+        let frame_height: u16;
+        let render_width: u16;
+        let render_height: u16;
 
-        todo!()
+        for i in 0..REFS_PER_FRAME as usize {
+            // found_ref
+            if r.read::<1, u8>()? == 1 {
+                upscaled_width = ctx.ref_frame_sizes[ref_frame_index[i] as usize].upscaled_width;
+                frame_width = upscaled_width;
+                frame_height = ctx.ref_frame_sizes[ref_frame_index[i] as usize].frame_height;
+                render_width = ctx.ref_frame_render_sizes[ref_frame_index[i] as usize].render_width;
+                render_height =
+                    ctx.ref_frame_render_sizes[ref_frame_index[i] as usize].render_height;
+
+                // superres_params( )
+                let (use_superres, coded_denom, superres_denom, upscaled_width) = superres_params(
+                    r,
+                    ctx.last_sequence_header.clone().ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "No last sequence header",
+                        )
+                    })?,
+                    &mut frame_width,
+                )?;
+
+                // compute_image_size( )
+                let (mi_cols, mi_rows) = compute_image_size(frame_width, frame_height);
+
+                return Ok((
+                    Self {
+                        frame_width,
+                        frame_height,
+                        use_superres,
+                        coded_denom: coded_denom.unwrap_or_default(),
+                        superres_denom,
+                        upscaled_width,
+                        mi_cols,
+                        mi_rows,
+                    },
+                    RenderSize {
+                        render_and_frame_size_different: 0,
+                        render_width,
+                        render_height,
+                    },
+                ));
+            }
+        }
+        let frame_size = FrameSize::frame_size(r, frame_size_override_flag, ctx)?;
+        let render_size = RenderSize::render_size(r, &frame_size)?;
+        Ok((frame_size, render_size))
     }
 
     pub fn frame_size<R: bitstream_io::BitRead + ?Sized>(
@@ -442,29 +510,11 @@ impl FrameSize {
         }
 
         // superres_params( )
-        let use_superres: u8 = if sequence_header.enable_superres != 0 {
-            r.read::<1, u8>()?
-        } else {
-            0
-        };
-        let coded_denom: Option<u8>;
-        let superres_denom: u8;
-        let upscaled_width: u16;
-
-        if use_superres != 0 {
-            coded_denom = Some(r.read_var::<u8>(SUPERRES_DENOM_BITS as u32)?);
-            superres_denom = coded_denom.unwrap() + SUPERRES_DENOM_MIN;
-        } else {
-            coded_denom = None;
-            superres_denom = SUPERRES_NUM;
-        }
-        upscaled_width = frame_width;
-        frame_width = (upscaled_width * SUPERRES_NUM as u16 + (superres_denom as u16 / 2))
-            / superres_denom as u16;
+        let (use_superres, coded_denom, superres_denom, upscaled_width) =
+            superres_params(r, sequence_header, &mut frame_width)?;
 
         // compute_image_size( )
-        let mi_cols = 2 * ((frame_width + 7) >> 3);
-        let mi_rows = 2 * ((frame_height + 7) >> 3);
+        let (mi_cols, mi_rows) = compute_image_size(frame_width, frame_height);
 
         Ok(Self {
             frame_width,
@@ -477,6 +527,38 @@ impl FrameSize {
             mi_rows,
         })
     }
+}
+
+fn compute_image_size(frame_width: u16, frame_height: u16) -> (u16, u16) {
+    let mi_cols = 2 * ((frame_width + 7) >> 3);
+    let mi_rows = 2 * ((frame_height + 7) >> 3);
+    (mi_cols, mi_rows)
+}
+
+fn superres_params<R: bitstream_io::BitRead + ?Sized>(
+    r: &mut R,
+    sequence_header: SequenceHeader,
+    frame_width: &mut u16,
+) -> Result<(u8, Option<u8>, u8, u16), std::io::Error> {
+    let use_superres: u8 = if sequence_header.enable_superres != 0 {
+        r.read::<1, u8>()?
+    } else {
+        0
+    };
+    let coded_denom: Option<u8>;
+    let superres_denom: u8;
+    let upscaled_width: u16;
+    if use_superres != 0 {
+        coded_denom = Some(r.read_var::<u8>(SUPERRES_DENOM_BITS as u32)?);
+        superres_denom = coded_denom.unwrap() + SUPERRES_DENOM_MIN;
+    } else {
+        coded_denom = None;
+        superres_denom = SUPERRES_NUM;
+    }
+    upscaled_width = *frame_width;
+    *frame_width = (upscaled_width * SUPERRES_NUM as u16 + (superres_denom as u16 / 2))
+        / superres_denom as u16;
+    Ok((use_superres, coded_denom, superres_denom, upscaled_width))
 }
 
 impl RenderSize {

@@ -83,14 +83,14 @@ impl FrameHeader {
             None
         };
 
-        let all_frames = (1u8 << NUM_REF_FRAMES) - 1;
+        let all_frames = (1u16 << NUM_REF_FRAMES) - 1;
         let show_existing_frame: u8;
         let frame_type: FRAME_TYPE;
         let frame_is_intra: u8;
         let show_frame: u8;
         let showable_frame: u8;
         let frame_to_show_map_index: u8;
-        let mut refresh_frame_flag: u8;
+        let mut refresh_frame_flag: u16;
         let mut error_resilient_mode: Option<u8> = None;
 
         // It is a requirement of bitstream conformance
@@ -344,7 +344,7 @@ impl FrameHeader {
         {
             refresh_frame_flag = all_frames;
         } else {
-            refresh_frame_flag = r.read::<8, u8>()?;
+            refresh_frame_flag = r.read::<8, u16>()?;
         }
 
         if frame_is_intra == 0 || refresh_frame_flag != all_frames {

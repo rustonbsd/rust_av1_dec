@@ -52,7 +52,6 @@ impl Leb128 {
         }
         size
     }
-
 }
 
 impl FromBitStream for Leb128 {
@@ -77,6 +76,58 @@ impl FromBitStream for Leb128 {
             "leb128 exeeded 8 bytes",
         ))
     }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Ns {
+    pub value: u32,
+}
+
+/*
+ns( n ) {	Type
+    w = FloorLog2(n) + 1
+    m = (1 << w) - n
+    v	f(w - 1)
+    if ( v < m )
+        return v
+    extra_bit	f(1)
+    return (v << 1) - m + extra_bit
+} */
+impl Ns {
+    pub fn ns<R: bitstream_io::BitRead + ?Sized>(r: &mut R, n: u32) -> Result<Self, std::io::Error>
+    where
+        Self: Sized,
+    {
+        let w = floor_log2(n) + 1;
+        let m = (1 << w) - n;
+        let v = r.read_var::<u32>(w - 1)?;
+        if v < m {
+            return Ok(Self { value: v });
+        }
+
+        // extra_bit 
+        Ok(Self {
+            value: (v << 1) - m + r.read::<1, u32>()?,
+        })
+    }
+}
+
+/*FloorLog2( x ) {
+  s = 0
+  while ( x != 0 ) {
+    x = x >> 1
+    s++
+  }
+  return s - 1
+} */
+pub fn floor_log2(x: u32) -> u32 {
+    let mut s = 0;
+    let mut mut_x = x;
+    while mut_x != 0 {
+        mut_x >>= 1;
+        s += 1;
+    }
+    s - 1
 }
 
 impl std::fmt::Display for Uvlc {

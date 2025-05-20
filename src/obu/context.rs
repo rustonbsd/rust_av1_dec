@@ -16,6 +16,7 @@ pub struct DecoderContext {
     pub ref_valid: [u8; NUM_REF_FRAMES as usize],
     pub ref_order_hint: [u8; NUM_REF_FRAMES as usize],
     pub ref_frame_id: [u8; NUM_REF_FRAMES as usize],
+    pub ref_frame_sign_bias: [u8; NUM_REF_FRAMES as usize],
     
     pub ref_frame_sizes: [FrameSize; NUM_REF_FRAMES as usize],
     pub ref_frame_render_sizes: [RenderSize; NUM_REF_FRAMES as usize],
@@ -41,6 +42,7 @@ impl DecoderContext {
             order_hints: [0; REFS_PER_FRAME as usize].to_vec(),
             order_hint: 0,
             ref_frame_id: [0; NUM_REF_FRAMES as usize],
+            ref_frame_sign_bias: [0; NUM_REF_FRAMES as usize],
 
             ref_frame_sizes: [FrameSize::default(); NUM_REF_FRAMES as usize],
             ref_frame_render_sizes: [RenderSize::default(); NUM_REF_FRAMES as usize],
@@ -114,3 +116,37 @@ pub fn set_frame_refs() -> Result<(), std::io::Error> {
     Ok(())
 }
 
+pub fn init_non_coeff_cdfs() -> Result<(), std::io::Error> {
+    log::debug!("obu->handlers->init_non_coeff_cdfs()");
+    Ok(())
+}
+
+pub fn setup_past_independence() -> Result<(), std::io::Error> {
+    log::debug!("obu->handlers->setup_past_independence()");
+    Ok(())
+}
+
+pub fn load_cdfs(frame_to_show_map_idx: u8) -> Result<(), std::io::Error> {
+    log::debug!("obu->handlers->load_cdfs()");
+    Ok(())
+}
+
+pub fn load_previous() -> Result<(), std::io::Error> {
+    log::debug!("obu->handlers->load_previous()");
+    Ok(())
+}
+
+pub fn motion_field_estimation() -> Result<(), std::io::Error> {
+    log::debug!("obu->handlers->motion_field_estimation()");
+    Ok(())
+}
+
+pub fn tile_info() -> Result<(), std::io::Error> {
+    log::debug!("obu->handlers->tile_info()");
+    Ok(())
+}
+
+pub fn quantization_params() -> Result<(), std::io::Error> {
+    log::debug!("obu->handlers->quantization_params()");
+    Ok(())
+}

@@ -7,6 +7,10 @@ pub const PRIMARY_REF_NONE: u8 = 7u8;
 pub const SUPERRES_DENOM_BITS: u8 = 3u8;
 pub const SUPERRES_DENOM_MIN: u8 = 9u8;
 pub const SUPERRES_NUM: u8 = 8u8;
+pub const MAX_TILE_WIDTH: u32 = 4096u32;
+pub const MAX_TILE_AREA: u32 = 9437184u32;
+pub const MAX_TILE_COLS: u32 = 64u32;
+pub const MAX_TILE_ROWS: u32 = 64u32;
 
 /*
 color_primaries	Name of color primaries	Description
@@ -177,4 +181,20 @@ pub enum FRAME_TYPE {
     INTER_FRAME = 1,
     INTRA_ONLY_FRAME = 2,
     SWITCH_FRAME = 3,
+}
+
+/*interpolation_filter	Name of interpolation_filter
+0	EIGHTTAP
+1	EIGHTTAP_SMOOTH
+2	EIGHTTAP_SHARP
+3	BILINEAR
+4	SWITCHABLE */
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[allow(non_camel_case_types)]
+pub enum INTERPOLATION_FILTER {
+    EIGHTTAP = 0,
+    EIGHTTAP_SMOOTH = 1,
+    EIGHTTAP_SHARP = 2,
+    BILINEAR = 3,
+    SWITCHABLE = 4,
 }

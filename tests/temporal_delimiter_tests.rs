@@ -14,11 +14,12 @@ fn test_extract_temporal_delimiter_obus() -> io::Result<()> {
     
     let mut position = 0;
     let mut temporal_delimiters_found = 0;
+    let mut ctx = rust_av1_dec::obu::context::DecoderContext::new();
     
     while position < buffer.len() {
         let mut segment_reader = BitReader::endian(&buffer[position..], bitstream_io::BigEndian);
         
-        match OBU::open_bitstream_unit(&mut segment_reader, (buffer.len() - position) as u64) {
+        match OBU::open_bitstream_unit(&mut segment_reader, (buffer.len() - position) as u64, &mut ctx) {
             Ok(obu) => {
                 if obu.header.obu_type == OBU_TYPE::OBU_TEMPORAL_DELIMITER {
                     temporal_delimiters_found += 1;

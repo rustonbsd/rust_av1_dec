@@ -1,7 +1,16 @@
 mod impls;
 pub const SELECT_SCREEN_CONTENT_TOOLS: u8 = 2u8;
 pub const SELECT_INTEGER_MV: u8 = 2u8;
-
+pub const NUM_REF_FRAMES: u8 = 8u8;
+pub const REFS_PER_FRAME: u8 = 7u8;
+pub const PRIMARY_REF_NONE: u8 = 7u8;
+pub const SUPERRES_DENOM_BITS: u8 = 3u8;
+pub const SUPERRES_DENOM_MIN: u8 = 9u8;
+pub const SUPERRES_NUM: u8 = 8u8;
+pub const MAX_TILE_WIDTH: u32 = 4096u32;
+pub const MAX_TILE_AREA: u32 = 9437184u32;
+pub const MAX_TILE_COLS: u32 = 64u32;
+pub const MAX_TILE_ROWS: u32 = 64u32;
 
 /*
 color_primaries	Name of color primaries	Description
@@ -18,7 +27,7 @@ color_primaries	Name of color primaries	Description
 12	CP_SMPTE_432	SMPTE EG 432-1
 22	CP_EBU_3213	EBU Tech. 3213-E
 */
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[allow(non_camel_case_types)]
 pub enum COLOR_PRIMARIES {
     CP_BT_709 = 1,
@@ -57,7 +66,7 @@ transfer_characteristics	Name of transfer characteristics	Description
 16	TC_SMPTE_2084	SMPTE ST 2084, ITU BT.2100 PQ
 17	TC_SMPTE_428	SMPTE ST 428
 18	TC_HLG	BT.2100 HLG, ARIB STD-B67 */
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[allow(non_camel_case_types)]
 pub enum TRANSFER_CHARACTERISTICS {
     TC_RESERVED_0 = 0,
@@ -98,7 +107,7 @@ pub enum TRANSFER_CHARACTERISTICS {
 12	MC_CHROMAT_NCL	Chromaticity-derived non-constant luminance
 13	MC_CHROMAT_CL	Chromaticity-derived constant luminance
 14	MC_ICTCP	BT.2100 ICtCp */
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[allow(non_camel_case_types)]
 pub enum MATRIX_COEFFICIENTS {
     MC_IDENTITY = 0,
@@ -131,7 +140,7 @@ pub enum MATRIX_COEFFICIENTS {
 8	OBU_TILE_LIST	N
 9-14	Reserved	-
 15	OBU_PADDING	Either */
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[allow(non_camel_case_types)]
 pub enum OBU_TYPE {
     OBU_SEQUENCE_HEADER = 1,
@@ -151,11 +160,41 @@ pub enum OBU_TYPE {
 2	CSP_COLOCATED	co-located with (0, 0) luma sample
 3	CSP_RESERVED	 
  */
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[allow(non_camel_case_types)]
 pub enum CHROMA_SAMPLE_POSITION {
     CSP_UNKNOWN = 0,
     CSP_VERTICAL = 1,
     CSP_COLOCATED = 2,
     CSP_RESERVED = 3,
+}
+
+/*frame_type	Name of frame_type
+0	KEY_FRAME
+1	INTER_FRAME
+2	INTRA_ONLY_FRAME
+3	SWITCH_FRAME */
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[allow(non_camel_case_types)]
+pub enum FRAME_TYPE {
+    KEY_FRAME = 0,
+    INTER_FRAME = 1,
+    INTRA_ONLY_FRAME = 2,
+    SWITCH_FRAME = 3,
+}
+
+/*interpolation_filter	Name of interpolation_filter
+0	EIGHTTAP
+1	EIGHTTAP_SMOOTH
+2	EIGHTTAP_SHARP
+3	BILINEAR
+4	SWITCHABLE */
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[allow(non_camel_case_types)]
+pub enum INTERPOLATION_FILTER {
+    EIGHTTAP = 0,
+    EIGHTTAP_SMOOTH = 1,
+    EIGHTTAP_SHARP = 2,
+    BILINEAR = 3,
+    SWITCHABLE = 4,
 }

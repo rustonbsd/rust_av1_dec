@@ -15,11 +15,12 @@ fn test_parse_sequence_headers() -> io::Result<()> {
     let mut position = 0;
     let mut sequence_headers_found = 0;
     let mut sequence_headers_parsed = 0;
+    let mut ctx = rust_av1_dec::obu::context::DecoderContext::new();
     
     while position < buffer.len() {
         let mut segment_reader = BitReader::endian(&buffer[position..], bitstream_io::BigEndian);
         
-        match OBU::open_bitstream_unit(&mut segment_reader, (buffer.len() - position) as u64) {
+        match OBU::open_bitstream_unit(&mut segment_reader, (buffer.len() - position) as u64, &mut ctx) {
             Ok(obu) => {
                 if obu.header.obu_type == OBU_TYPE::OBU_SEQUENCE_HEADER {
                     sequence_headers_found += 1;
@@ -65,11 +66,12 @@ fn test_sequence_header_values_match_reference() -> io::Result<()> {
     
     let mut position = 0;
     let mut sequence_headers = Vec::new();
+    let mut ctx = rust_av1_dec::obu::context::DecoderContext::new();
     
     while position < buffer.len() {
         let mut segment_reader = BitReader::endian(&buffer[position..], bitstream_io::BigEndian);
         
-        match OBU::open_bitstream_unit(&mut segment_reader, (buffer.len() - position) as u64) {
+        match OBU::open_bitstream_unit(&mut segment_reader, (buffer.len() - position) as u64, &mut ctx) {
             Ok(obu) => {
                 if obu.header.obu_type == OBU_TYPE::OBU_SEQUENCE_HEADER {
                     if let Some(seq_header) = &obu.sequence_header {

@@ -6,12 +6,13 @@ use crate::{
         MAX_TILE_WIDTH, NUM_REF_FRAMES, PRIMARY_REF_NONE, REFS_PER_FRAME, SELECT_INTEGER_MV,
         SELECT_SCREEN_CONTENT_TOOLS, SUPERRES_DENOM_BITS, SUPERRES_DENOM_MIN, SUPERRES_NUM,
     },
-    generics::Ns,
+    generics::{Ns, Su},
     obu::{context, sequence_header::TimingInfo},
 };
 
 use super::{context::DecoderContext, sequence_header::SequenceHeader};
 
+// Structs
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct FrameHeader {}
 
@@ -46,6 +47,13 @@ pub struct TileInfo {
     pub context_update_tile_id: u8,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct QuantizationParams {
+
+}
+
+
+// Implementations
 impl FrameHeader {
     pub fn frame_header_obu<R: bitstream_io::BitRead + ?Sized>(
         r: &mut R,
@@ -737,6 +745,71 @@ impl TileInfo {
     }
 }
 
+impl QuantizationParams {
+    pub fn quantization_params<R: bitstream_io::BitRead + ?Sized>(
+        r: &mut R,
+        ctx: &mut DecoderContext,
+    ) -> Result<Self, std::io::Error>
+    where
+        Self: Sized,
+    {
+        let sequence_header = ctx.last_sequence_header.clone().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Last sequence header not present",
+            )
+        })?;
+
+        let base_q_index = r.read::<8,u8>()?;
+        let delta_qy_dc = read_delta_q(r)?;
+
+        if sequence_header.color_config.num_planes > 1 {
+            // NEXT UP NEXT if separate_uv_delta_q...
+        }
+
+
+        /*
+            quantization_params( ) {	Type
+                base_q_idx	f(8)
+                DeltaQYDc = read_delta_q( )	 
+                if ( NumPlanes > 1 ) {	 
+                    if ( separate_uv_delta_q )	 
+                    diff_uv_delta	f(1)
+                    else	 
+                    diff_uv_delta = 0	 
+                    DeltaQUDc = read_delta_q( )	 
+                    DeltaQUAc = read_delta_q( )	 
+                    if ( diff_uv_delta ) {	 
+                    DeltaQVDc = read_delta_q( )	 
+                    DeltaQVAc = read_delta_q( )	 
+                    } else {	 
+                    DeltaQVDc = DeltaQUDc	 
+                    DeltaQVAc = DeltaQUAc	 
+                    }	 
+                } else {	 
+                    DeltaQUDc = 0	 
+                    DeltaQUAc = 0	 
+                    DeltaQVDc = 0	 
+                    DeltaQVAc = 0	 
+                }	 
+                using_qmatrix	f(1)
+                if ( using_qmatrix ) {	 
+                    qm_y	f(4)
+                    qm_u	f(4)
+                    if ( !separate_uv_delta_q )	 
+                        qm_v = qm_u	 
+                    else	 
+                        qm_v	f(4)
+                }	 
+            }
+        */
+
+        todo!()
+
+    }
+}
+
+// Functions
 fn frame_size_with_refs<R: bitstream_io::BitRead + ?Sized>(
     r: &mut R,
     ref_frame_index: [u8; REFS_PER_FRAME as usize],
@@ -845,7 +918,7 @@ fn tile_log2(blk_size: u32, target: u32) -> u16 {
     k
 }
 
-fn get_relative_dist(a: u8, b: u8, ctx: &mut DecoderContext) -> Result<i16, std::io::Error> {
+fn get_relative_dist(a: u8, b: u8, ctx: &mut DecoderContext) -> Result<u16, std::io::Error> {
     let sequence_header = ctx.last_sequence_header.clone().ok_or_else(|| {
         std::io::Error::new(std::io::ErrorKind::InvalidData, "No last sequence header")
     })?;
@@ -854,11 +927,20 @@ fn get_relative_dist(a: u8, b: u8, ctx: &mut DecoderContext) -> Result<i16, std:
         return Ok(0);
     }
 
-    let diff: i16 = a as i16 - b as i16;
-    let m: i16 = 1i16 << (sequence_header.order_hint_bits as i16 - 1i16);
+    let diff: u16 = a as u16 - b as u16;
+    let m: u16 = 1u16 << (sequence_header.order_hint_bits as u16 - 1u16);
     Ok((diff & (m - 1)) - (diff & m))
 }
 
+fn read_delta_q<R: bitstream_io::BitRead + ?Sized>(r: &mut R) -> Result<Su, std::io::Error> {
+    if r.read::<1, u8>()? != 0 {
+        Ok(Su::su(r, 7)?)
+    } else {
+        Ok(Su { value: 0 })
+    }
+}
+
+// Defaults and prints
 impl Default for FrameSize {
     fn default() -> Self {
         Self {

@@ -112,14 +112,37 @@ impl Ns {
     }
 }
 
-/*FloorLog2( x ) {
-  s = 0
-  while ( x != 0 ) {
-    x = x >> 1
-    s++
-  }
-  return s - 1
-} */
+/*
+su(n) {	Type
+    value	f(n)
+    signMask = 1 << (n - 1)	 
+    if ( value & signMask )	 
+        value = value - 2 * signMask	 
+    return value	 
+}
+*/
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Su {
+    pub value: u32,
+}
+
+impl Su {
+    pub fn su<R: bitstream_io::BitRead + ?Sized>(r: &mut R, n: u32) -> Result<Self, std::io::Error>
+    where
+        Self: Sized,
+    {
+        let value = r.read_var::<u32>(n)?;
+        let sign_mask = 1 << (n-1);
+        if value & sign_mask != 0 {
+            Ok(Self {
+                value: value - 2 * sign_mask,
+            })
+        } else {
+            Ok(Self { value })
+        }
+    }
+}
+
 pub fn floor_log2(x: u32) -> u32 {
     let mut s = 0;
     let mut mut_x = x;

@@ -11,6 +11,23 @@ pub const MAX_TILE_WIDTH: u32 = 4096u32;
 pub const MAX_TILE_AREA: u32 = 9437184u32;
 pub const MAX_TILE_COLS: u32 = 64u32;
 pub const MAX_TILE_ROWS: u32 = 64u32;
+pub const MAX_SEGMENTS: u8 = 8u8;
+pub const SEG_LVL_MAX: u8 = 8u8;
+pub const MAX_LOOP_FILTER: u8 = 63u8;
+pub const SEG_LVL_REF_FRAME: u8 = 5u8;
+
+pub const SEGMENTATION_FEATURE_BITS: [u8; SEG_LVL_MAX as usize] = [8, 6, 6, 6, 6, 3, 0, 0];
+pub const SEGMENTATION_FEATURE_SIGNED: [u8; SEG_LVL_MAX as usize] = [1, 1, 1, 1, 1, 0, 0, 0];
+pub const SEGMENTATION_FEATURE_MAX: [u8; SEG_LVL_MAX as usize] = [
+    255,
+    MAX_LOOP_FILTER as u8,
+    MAX_LOOP_FILTER as u8,
+    MAX_LOOP_FILTER as u8,
+    MAX_LOOP_FILTER as u8,
+    7,
+    0,
+    0,
+];
 
 /*
 color_primaries	Name of color primaries	Description

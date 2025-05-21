@@ -143,6 +143,13 @@ impl Su {
     }
 }
 
+impl Default for Su {
+    fn default() -> Self {
+        Self { value: 0 }
+    }
+}
+
+
 pub fn floor_log2(x: u32) -> u32 {
     let mut s = 0;
     let mut mut_x = x;
@@ -151,6 +158,16 @@ pub fn floor_log2(x: u32) -> u32 {
         s += 1;
     }
     s - 1
+}
+
+pub fn clip3(min: i16,max: i16, x: i16) -> i16 {
+    if x < min {
+        min
+    } else if x > max {
+        max
+    } else {
+        x
+    }
 }
 
 impl std::fmt::Display for Uvlc {

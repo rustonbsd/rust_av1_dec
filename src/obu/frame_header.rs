@@ -2,9 +2,13 @@ use bitstream_io::FromBitStream;
 
 use crate::{
     consts::{
-        FRAME_TYPE, INTERPOLATION_FILTER, MAX_SEGMENTS, MAX_TILE_AREA, MAX_TILE_COLS, MAX_TILE_ROWS, MAX_TILE_WIDTH, NUM_REF_FRAMES, PRIMARY_REF_NONE, REFS_PER_FRAME, SEGMENTATION_FEATURE_BITS, SEGMENTATION_FEATURE_MAX, SEG_LVL_MAX, SEG_LVL_REF_FRAME, SELECT_INTEGER_MV, SELECT_SCREEN_CONTENT_TOOLS, SUPERRES_DENOM_BITS, SUPERRES_DENOM_MIN, SUPERRES_NUM
+        FRAME_TYPE, INTERPOLATION_FILTER, MAX_SEGMENTS, MAX_TILE_AREA, MAX_TILE_COLS,
+        MAX_TILE_ROWS, MAX_TILE_WIDTH, NUM_REF_FRAMES, PRIMARY_REF_NONE, REFS_PER_FRAME,
+        SEG_LVL_MAX, SEG_LVL_REF_FRAME, SEGMENTATION_FEATURE_BITS, SEGMENTATION_FEATURE_MAX,
+        SELECT_INTEGER_MV, SELECT_SCREEN_CONTENT_TOOLS, SUPERRES_DENOM_BITS, SUPERRES_DENOM_MIN,
+        SUPERRES_NUM,
     },
-    generics::{clip3, Ns, Su},
+    generics::{Ns, Su, clip3},
     obu::{context, sequence_header::TimingInfo},
 };
 
@@ -76,6 +80,13 @@ pub struct SegmentationParams {
 pub struct DeltaQParams {
     pub delta_q_present: u8,
     pub delta_q_res: u8,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct DeltaLFParams {
+    pub delta_lf_present: u8,
+    pub delta_lf_res: u8,
+    pub delta_lf_multi: u8,
 }
 
 // Implementations
@@ -510,24 +521,77 @@ impl FrameHeader {
             context::motion_field_estimation()?;
         }
 
-        // NEXT UP NEXT [!] delta_lf_params( )
         let tile_info = TileInfo::tile_info(r, &frame_size, ctx)?;
-        let qunantization_params = QuantizationParams::quantization_params(r, ctx)?;
-        let segmentation_params = SegmentationParams::segmentation_params(r, primary_ref_frame, ctx)?;
-        let delta_q_params = DeltaQParams::delta_q_params(r, &qunantization_params)?;
+        let quantization_params = QuantizationParams::quantization_params(r, ctx)?;
+        let segmentation_params =
+            SegmentationParams::segmentation_params(r, primary_ref_frame, ctx)?;
+        let delta_q_params = DeltaQParams::delta_q_params(r, &quantization_params)?;
+        let delta_lf_params = DeltaLFParams::delta_lf_params(r, &delta_q_params, allow_intrabc)?;
 
-        /*
-            tile_info( )
-            quantization_params( )
-            segmentation_params( )
-            delta_q_params( )
-            delta_lf_params( )
-            if ( primary_ref_frame == PRIMARY_REF_NONE ) {
-                init_coeff_cdfs( )
+        if primary_ref_frame == PRIMARY_REF_NONE {
+            context::init_coeff_cdfs()?; // [!] TODO
+        } else {
+            context::load_previous_segment_ids()?; // [!] TODO
+        }
+
+        let mut coded_lossless: u8 = 1;
+
+        for segment_id in 0..MAX_SEGMENTS {
+            let q_index = context::get_qindex(
+                1,
+                segment_id,
+                &segmentation_params,
+                &quantization_params,
+                &delta_q_params,
+                ctx,
+            )?;
+
+            ctx.lossless_array[segment_id as usize] = if q_index == 0
+                && quantization_params.delta_q_y_dc == Su::zero()
+                && quantization_params.delta_q_u_ac == Su::zero()
+                && quantization_params.delta_q_u_dc == Su::zero()
+                && quantization_params.delta_q_v_ac == Su::zero()
+                && quantization_params.delta_q_v_dc == Su::zero()
+            {
+                1u8
             } else {
-                load_previous_segment_ids( )
+                0u8
+            };
+
+            if ctx.lossless_array[segment_id as usize] == 0 {
+                coded_lossless = 0;
             }
-        */
+            if quantization_params.using_qmatrix != 0 {
+                if ctx.lossless_array[segment_id as usize] != 0 {
+                    ctx.seg_qm_level[0][segment_id as usize] = 15;
+                    ctx.seg_qm_level[1][segment_id as usize] = 15;
+                    ctx.seg_qm_level[2][segment_id as usize] = 15;
+                } else {
+                    ctx.seg_qm_level[0][segment_id as usize] =
+                        quantization_params.qm_y.ok_or_else(|| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                "No qm_y in quantization params",
+                            )
+                        })?;
+                    ctx.seg_qm_level[1][segment_id as usize] = quantization_params.qm_u.ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "No qm_u in quantization params",
+                        )
+                    })?;
+                    ctx.seg_qm_level[2][segment_id as usize] = quantization_params.qm_v.ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "No qm_v in quantization params",
+                        )
+                    })?;
+                }
+            }
+        }
+
+        // [!] NEXT UP NEXT AllLossless = CodedLossless && ( FrameWidth == UpscaledWidth )
+        
 
         todo!()
     }
@@ -880,11 +944,11 @@ impl SegmentationParams {
                             let clipped_value;
 
                             if SEGMENTATION_FEATURE_BITS[j] == 1 {
-                                let feature_value = Su::su(r, bits_to_read as u32 +1)?;
+                                let feature_value = Su::su(r, bits_to_read as u32 + 1)?;
                                 clipped_value = clip3(-limit, limit, feature_value.value as i16);
                             } else {
                                 let feature_value = r.read_var::<u8>(bits_to_read as u32)? as i16;
-                                clipped_value = clip3(0,limit,feature_value);
+                                clipped_value = clip3(0, limit, feature_value);
                             }
 
                             feature_data[i][j] = clipped_value;
@@ -942,6 +1006,37 @@ impl DeltaQParams {
         Ok(Self {
             delta_q_present,
             delta_q_res,
+        })
+    }
+}
+
+impl DeltaLFParams {
+    pub fn delta_lf_params<R: bitstream_io::BitRead + ?Sized>(
+        r: &mut R,
+        delta_q_params: &DeltaQParams,
+        allow_intrabc: u8,
+    ) -> Result<Self, std::io::Error>
+    where
+        Self: Sized,
+    {
+        let mut delta_lf_present: u8 = 0;
+        let mut delta_lf_res: u8 = 0;
+        let mut delta_lf_multi: u8 = 0;
+
+        if delta_q_params.delta_q_present != 0 {
+            if allow_intrabc == 0 {
+                delta_lf_present = r.read::<1, u8>()?;
+            }
+            if delta_lf_present != 0 {
+                delta_lf_res = r.read::<2, u8>()?;
+                delta_lf_multi = r.read::<1, u8>()?;
+            }
+        }
+
+        Ok(Self {
+            delta_lf_present,
+            delta_lf_res,
+            delta_lf_multi,
         })
     }
 }

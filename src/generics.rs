@@ -141,6 +141,10 @@ impl Su {
             Ok(Self { value })
         }
     }
+
+    pub fn zero() -> Self {
+        Self { value: 0 }
+    }
 }
 
 impl Default for Su {

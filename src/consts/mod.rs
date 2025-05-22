@@ -15,6 +15,8 @@ pub const MAX_SEGMENTS: u8 = 8u8;
 pub const SEG_LVL_MAX: u8 = 8u8;
 pub const MAX_LOOP_FILTER: u8 = 63u8;
 pub const SEG_LVL_REF_FRAME: u8 = 5u8;
+pub const SEG_LVL_ALT_Q: u8 = 0u8;
+pub const QM_TOTAL_SIZE: u16 = 3344u16;
 
 pub const SEGMENTATION_FEATURE_BITS: [u8; SEG_LVL_MAX as usize] = [8, 6, 6, 6, 6, 3, 0, 0];
 pub const SEGMENTATION_FEATURE_SIGNED: [u8; SEG_LVL_MAX as usize] = [1, 1, 1, 1, 1, 0, 0, 0];

@@ -23,7 +23,6 @@ pub struct DecoderContext {
     pub ref_order_hint: [u8; NUM_REF_FRAMES as usize],
     pub ref_frame_id: [u8; NUM_REF_FRAMES as usize],
     pub ref_frame_sign_bias: [u8; NUM_REF_FRAMES as usize],
-
     pub ref_frame_sizes: [FrameSize; NUM_REF_FRAMES as usize],
     pub ref_frame_render_sizes: [RenderSize; NUM_REF_FRAMES as usize],
 
@@ -110,68 +109,80 @@ impl DecoderContext {
 }
 
 pub fn choose_operating_point() -> Result<usize, std::io::Error> {
-    log::debug!("[] obu->handlers->choose_operating_point()");
+    log::debug!("[-] obu->handlers->choose_operating_point() default: 0");
     Ok(0usize)
 }
 
 // 7.4 Decode frame wrapup process
 pub fn decode_frame_wrapup() -> Result<(), std::io::Error> {
     log::debug!("[] obu->handlers->decode_frame_wrapup()");
+    todo!("Implement decode_frame_wrapup");
     Ok(())
 }
 
 pub fn load_grain_params(frame_to_show_map_idx: u8) -> Result<(), std::io::Error> {
     log::debug!("[] obu->handlers->load_grain_params()");
+    todo!("Implement load_grain_params");
     Ok(())
 }
 
 pub fn set_frame_refs() -> Result<(), std::io::Error> {
     log::debug!("[] obu->handlers->set_frame_refs()");
+    todo!("Implement set_frame_refs");
     Ok(())
 }
 
 pub fn init_non_coeff_cdfs() -> Result<(), std::io::Error> {
     log::debug!("[] obu->handlers->init_non_coeff_cdfs()");
+    todo!("Implement init_non_coeff_cdfs");
     Ok(())
 }
 
 pub fn setup_past_independence() -> Result<(), std::io::Error> {
     log::debug!("[] obu->handlers->setup_past_independence()");
+    todo!("Implement setup_past_independence");
     Ok(())
 }
 
 pub fn load_cdfs(frame_to_show_map_idx: u8) -> Result<(), std::io::Error> {
     log::debug!("[] obu->handlers->load_cdfs()");
+    todo!("Implement load_cdfs");
     Ok(())
 }
 
 pub fn load_previous() -> Result<(), std::io::Error> {
     log::debug!("[] obu->handlers->load_previous()");
+    todo!("Implement load_previous");
     Ok(())
 }
 
 pub fn motion_field_estimation() -> Result<(), std::io::Error> {
     log::debug!("[] obu->handlers->motion_field_estimation()");
+    todo!("Implement motion_field_estimation");
     Ok(())
 }
 
 pub fn tile_info() -> Result<(), std::io::Error> {
     log::debug!("[] obu->handlers->tile_info()");
+    todo!("Implement tile_info");
     Ok(())
 }
 
 pub fn quantization_params() -> Result<(), std::io::Error> {
     log::debug!("[] obu->handlers->quantization_params()");
+    todo!("Implement quantization_params");
     Ok(())
 }
 
 pub fn init_coeff_cdfs() -> Result<(), std::io::Error> {
     log::debug!("[] obu->handlers->init_coeff_cdfs()");
+    todo!("Implement init_coeff_cdfs");
     Ok(())
 }
 
 pub fn load_previous_segment_ids() -> Result<(), std::io::Error> {
     log::debug!("[] obu->handlers->load_previous_segment_ids()");
+    todo!("Implement load_previous_segment_ids");
     Ok(())
 }
 

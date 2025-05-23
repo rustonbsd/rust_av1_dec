@@ -15,8 +15,51 @@ use crate::{
 use super::{context::DecoderContext, sequence_header::SequenceHeader};
 
 // Structs
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct FrameHeader {}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct FrameHeader {
+    pub seen_frame_header: u8,
+    pub id_len: Option<u8>,
+    pub all_frames: u16,
+    pub show_existing_frame: u8,
+    pub frame_type: FRAME_TYPE,
+    pub frame_is_intra: u8,
+    pub show_frame: u8,
+    pub showable_frame: u8,
+    pub frame_to_show_map_index: u8,
+    pub refresh_frame_flag: u16,
+    pub error_resilient_mode: Option<u8>,
+    pub display_frame_id: Option<u16>,
+    pub frame_presentation_time: Option<u32>,
+    pub disable_cdf_update: u8,
+    pub allow_screen_content_tools: u8,
+    pub force_integer_mv: u8,
+    pub frame_size_override_flag: u8,
+    pub order_hint: u8,
+    pub primary_ref_frame: u8,
+    pub buffer_removal_time_present: u8,
+    pub buffer_removal_time: Option<Vec<u32>>,
+    pub allow_high_precision_mv: u8,
+    pub use_ref_frame_mvs: u8,
+    pub allow_intrabc: u8,
+    pub ref_order_hint: [u8; NUM_REF_FRAMES as usize],
+    pub frame_refs_short_signaling: u8,
+    pub last_frame_index: Option<u8>,
+    pub gold_frame_index: Option<u8>,
+    pub ref_frame_index: [u8; REFS_PER_FRAME as usize],
+    pub expected_frame_id: [u16; NUM_REF_FRAMES as usize],
+    pub frame_size: FrameSize,
+    pub render_size: RenderSize,
+    pub interpolation_filter: Option<INTERPOLATION_FILTER>,
+    pub is_motion_mode_switchable: u8,
+    pub disable_frame_end_update_cdf: u8,
+    pub tile_info: TileInfo,
+    pub quantization_params: QuantizationParams,
+    pub segmentation_params: SegmentationParams,
+    pub delta_q_params: DeltaQParams,
+    pub delta_lf_params: DeltaLFParams,
+    pub coded_lossless: u8,
+    pub all_lossless: u8,
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct FrameSize {
@@ -133,15 +176,15 @@ impl FrameHeader {
         let frame_is_intra: u8;
         let show_frame: u8;
         let showable_frame: u8;
-        let frame_to_show_map_index: u8;
+        let mut frame_to_show_map_index: u8 = 0;
         let mut refresh_frame_flag: u16;
         let mut error_resilient_mode: Option<u8> = None;
 
         // It is a requirement of bitstream conformance
         // that the number of bits needed to read display_frame_id does not exceed 16.
         // This is equivalent to the constraint that idLen <= 16.
-        let display_frame_id: u16;
-        let frame_presentation_time: u32;
+        let mut display_frame_id: Option<u16> = None;
+        let mut frame_presentation_time: Option<u32> = None;
 
         if sequence_header.reduced_still_picture_header == 0 {
             show_existing_frame = r.read::<1, u8>()?;
@@ -169,14 +212,14 @@ impl FrameHeader {
                         .frame_presentation_delay_length_minus_1
                         as u32
                         + 1;
-                    frame_presentation_time = r.read_var(frame_presentation_time_bits)?;
+                    frame_presentation_time = Some(r.read_var(frame_presentation_time_bits)?);
                 }
 
                 refresh_frame_flag = 0;
                 if sequence_header.frame_id_numbers_present_flag != 0 {
-                    display_frame_id = r.read_var(id_len.ok_or_else(|| {
+                    display_frame_id = Some(r.read_var(id_len.ok_or_else(|| {
                         std::io::Error::new(std::io::ErrorKind::InvalidData, "Id len not present")
-                    })? as u32)?;
+                    })? as u32)?);
                 }
                 let ref_frame_type = ctx.ref_frame_type;
                 frame_type = ref_frame_type[frame_to_show_map_index as usize];
@@ -188,7 +231,12 @@ impl FrameHeader {
                     context::load_grain_params(frame_to_show_map_index)?;
                 }
 
-                return Ok(Self {});
+                return Ok(ctx.last_frame_header.clone().ok_or_else(|| 
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "No last frame header",
+                    )
+                )?);
             }
 
             frame_type = FRAME_TYPE::from_reader(r)?;
@@ -217,7 +265,7 @@ impl FrameHeader {
                     .frame_presentation_delay_length_minus_1
                     as u32
                     + 1;
-                frame_presentation_time = r.read_var(frame_presentation_time_bits)?;
+                frame_presentation_time = Some(r.read_var(frame_presentation_time_bits)?);
             }
             if show_frame != 0 {
                 showable_frame = (frame_type != FRAME_TYPE::KEY_FRAME) as u8;
@@ -245,7 +293,7 @@ impl FrameHeader {
         let frame_size_override_flag: u8;
         let order_hint: u8;
         let primary_ref_frame: u8; // 3 bits
-        let buffer_removal_time_present: u8;
+        let mut buffer_removal_time_present: u8 = 0;
         let mut buffer_removal_time: Option<Vec<u32>> = None;
 
         if frame_type == FRAME_TYPE::KEY_FRAME && showable_frame != 0 {
@@ -373,15 +421,15 @@ impl FrameHeader {
         let mut use_ref_frame_mvs: u8 = 0;
         let mut allow_intrabc = 0;
         let mut ref_order_hint: [u8; NUM_REF_FRAMES as usize] = [0; NUM_REF_FRAMES as usize];
-        let frame_refs_short_signaling: u8;
-        let last_frame_index: u8;
-        let gold_frame_index: u8;
+        let mut frame_refs_short_signaling: u8 = 0;
+        let mut last_frame_index: Option<u8> = None;
+        let mut gold_frame_index: Option<u8> = None;
         let mut ref_frame_index: [u8; REFS_PER_FRAME as usize] = [0; REFS_PER_FRAME as usize];
         let mut expected_frame_id: [u16; NUM_REF_FRAMES as usize] = [0; NUM_REF_FRAMES as usize];
         let frame_size: FrameSize;
         let render_size: RenderSize;
-        let interpolation_filter: INTERPOLATION_FILTER;
-        let is_motion_mode_switchable: u8;
+        let mut interpolation_filter: Option<INTERPOLATION_FILTER> = None;
+        let mut is_motion_mode_switchable: u8 = 0;
 
         if frame_type == FRAME_TYPE::SWITCH_FRAME
             || (frame_type == FRAME_TYPE::KEY_FRAME && show_frame != 0)
@@ -419,9 +467,9 @@ impl FrameHeader {
             } else {
                 frame_refs_short_signaling = r.read::<1, u8>()?;
                 if frame_refs_short_signaling != 0 {
-                    last_frame_index = r.read::<3, u8>()?;
-                    gold_frame_index = r.read::<3, u8>()?;
-                    context::set_frame_refs()?;
+                    last_frame_index = Some(r.read::<3, u8>()?);
+                    gold_frame_index = Some(r.read::<3, u8>()?);
+                    context::set_frame_refs()?; // [!] TODO
                 }
             }
 
@@ -471,7 +519,7 @@ impl FrameHeader {
             };
 
             // read_interpolation_filter( )
-            interpolation_filter = read_interpolation_filter(r)?;
+            interpolation_filter = Some(read_interpolation_filter(r)?);
 
             is_motion_mode_switchable = r.read::<1, u8>()?;
             use_ref_frame_mvs = if error_resilient_mode.is_some()
@@ -490,7 +538,6 @@ impl FrameHeader {
                 if sequence_header.enable_order_hint == 0 {
                     ctx.ref_frame_sign_bias[ref_frame as usize] = 0;
                 } else {
-                    // get_relative_dist( hint, OrderHint) > 0
                     ctx.ref_frame_sign_bias[ref_frame as usize] =
                         if get_relative_dist(hint, order_hint, ctx)? > 0 {
                             1
@@ -510,7 +557,7 @@ impl FrameHeader {
         }
 
         if primary_ref_frame == PRIMARY_REF_NONE {
-            context::init_non_coeff_cdfs()?;
+            context::init_non_coeff_cdfs()?;    
             context::setup_past_independence()?;
         } else {
             context::load_cdfs(ref_frame_index[primary_ref_frame as usize])?;
@@ -590,10 +637,57 @@ impl FrameHeader {
             }
         }
 
-        // [!] NEXT UP NEXT AllLossless = CodedLossless && ( FrameWidth == UpscaledWidth )
-        
+        let all_lossless = if coded_lossless != 0 && frame_size.frame_width == frame_size.upscaled_width {
+            1u8
+        } else {
+            0u8
+        };
 
-        todo!()
+        Ok(Self {
+            seen_frame_header,
+            id_len,
+            all_frames,
+            show_existing_frame,
+            frame_type,
+            frame_is_intra,
+            show_frame,
+            showable_frame,
+            frame_to_show_map_index,
+            refresh_frame_flag,
+            error_resilient_mode,
+            display_frame_id,
+            frame_presentation_time,
+            disable_cdf_update,
+            allow_screen_content_tools,
+            force_integer_mv,
+            frame_size_override_flag,
+            order_hint,
+            primary_ref_frame,
+            buffer_removal_time_present,
+            buffer_removal_time,
+            allow_high_precision_mv,
+            use_ref_frame_mvs,
+            allow_intrabc,
+            ref_order_hint,
+            frame_refs_short_signaling,
+            last_frame_index,
+            gold_frame_index,
+            ref_frame_index,
+            expected_frame_id,
+            frame_size,
+            render_size,
+            interpolation_filter,
+            is_motion_mode_switchable,
+            disable_frame_end_update_cdf,
+            tile_info,
+            quantization_params,
+            segmentation_params,
+            delta_q_params,
+            delta_lf_params,
+            coded_lossless,
+            all_lossless,
+        })
+
     }
 }
 

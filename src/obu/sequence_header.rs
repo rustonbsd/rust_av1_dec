@@ -2,6 +2,8 @@ use bitstream_io::FromBitStream;
 
 use crate::{consts, generics::Uvlc};
 
+use super::context::DecoderContext;
+
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SequenceHeader {
@@ -36,7 +38,6 @@ pub struct SequenceHeader {
     pub enable_ref_frame_mvs: u8,            // 1 bit
     pub seq_force_screen_content_tools: u8, // 1 bit
     pub seq_force_integer_mv: u8,           // 1 bit
-    pub order_hint_bits: u8,                 // 3 bits
     pub enable_superres: u8,                 // 1 bit
     pub enable_cdef: u8,                     // 1 bit
     pub enable_restoration: u8,              // 1 bit
@@ -94,6 +95,7 @@ impl SequenceHeader {
     // 5.5.1 General sequence header OBU syntax
     pub fn sequence_header_obu<R: bitstream_io::BitRead + ?Sized>(
         r: &mut R,
+        ctx: &mut DecoderContext,
     ) -> Result<Self, std::io::Error>
     where
         Self: Sized,
@@ -277,7 +279,6 @@ impl SequenceHeader {
         let mut enable_ref_frame_mvs: u8 = 0u8;
         let mut seq_force_screen_content_tools: u8 = consts::SELECT_SCREEN_CONTENT_TOOLS;
         let mut seq_force_integer_mv: u8 = consts::SELECT_INTEGER_MV;
-        let mut order_hint_bits: u8 = 0u8;
 
         if reduced_still_picture_header == 0 {
             enable_interintra_compound = r.read::<1, u8>()?;
@@ -304,7 +305,7 @@ impl SequenceHeader {
             }
 
             if enable_order_hint != 0 {
-                order_hint_bits = r.read::<3, u8>()? + 1u8;
+                ctx.order_hint_bits = r.read::<3, u8>()? + 1u8;
             }
         }
 
@@ -349,7 +350,6 @@ impl SequenceHeader {
             enable_ref_frame_mvs,
             seq_force_screen_content_tools,
             seq_force_integer_mv,
-            order_hint_bits,
             enable_superres,
             enable_cdef,
             enable_restoration,
@@ -563,7 +563,7 @@ impl std::fmt::Display for SequenceHeader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "OBU_Sequence_Header {{ seq_profile: {}, still_picture: {}, timing_info: {:?}, decoder_model_info: {:?}, operating_point_idc: {:?}, seq_level_idx: {:?}, seq_tier: {:?}, decoder_model_present_for_this_op: {:?}, operating_parameters_info: {:?}, initial_display_delay_present_for_this_op: {:?}, initial_display_delay_minus_1: {:?}, c_operating_point_idc: {}, max_frame_width_minus_one: {}, max_frame_height_minus_one: {}, delta_frame_id_length_minus_2: {:?}, additional_frame_id_length_minus_1: {:?}, use_128x128_superblock: {}, enable_filter_intra: {}, enable_intra_edge_filter: {}, enable_interintra_compound: {}, enable_masked_compound: {}, enable_warped_motion: {}, enable_dual_filter: {}, enable_order_hint: {}, enable_jnt_comp: {}, enable_ref_frame_mvs: {}, seq_force_screen_content_tools: {}, seq_force_integer_mv: {}, order_hint_bits: {}, enable_superres: {}, enable_cdef: {}, enable_restoration: {}, color_config: {:?}, film_grain_params_present: {}, frame_id_numbers_present_flag: {}, reduced_still_picture_header: {}, decoder_model_info_present_flag: {} }}",
+            "OBU_Sequence_Header {{ seq_profile: {}, still_picture: {}, timing_info: {:?}, decoder_model_info: {:?}, operating_point_idc: {:?}, seq_level_idx: {:?}, seq_tier: {:?}, decoder_model_present_for_this_op: {:?}, operating_parameters_info: {:?}, initial_display_delay_present_for_this_op: {:?}, initial_display_delay_minus_1: {:?}, c_operating_point_idc: {}, max_frame_width_minus_one: {}, max_frame_height_minus_one: {}, delta_frame_id_length_minus_2: {:?}, additional_frame_id_length_minus_1: {:?}, use_128x128_superblock: {}, enable_filter_intra: {}, enable_intra_edge_filter: {}, enable_interintra_compound: {}, enable_masked_compound: {}, enable_warped_motion: {}, enable_dual_filter: {}, enable_order_hint: {}, enable_jnt_comp: {}, enable_ref_frame_mvs: {}, seq_force_screen_content_tools: {}, seq_force_integer_mv: {}, enable_superres: {}, enable_cdef: {}, enable_restoration: {}, color_config: {:?}, film_grain_params_present: {}, frame_id_numbers_present_flag: {}, reduced_still_picture_header: {}, decoder_model_info_present_flag: {} }}",
             self.seq_profile,
             self.still_picture,
             self.timing_info,
@@ -592,7 +592,6 @@ impl std::fmt::Display for SequenceHeader {
             self.enable_ref_frame_mvs,
             self.seq_force_screen_content_tools,
             self.seq_force_integer_mv,
-            self.order_hint_bits,
             self.enable_superres,
             self.enable_cdef,
             self.enable_restoration,

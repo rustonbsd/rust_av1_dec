@@ -25,11 +25,16 @@ pub struct DecoderContext {
     pub ref_frame_sign_bias: [u8; NUM_REF_FRAMES as usize],
     pub ref_frame_sizes: [FrameSize; NUM_REF_FRAMES as usize],
     pub ref_frame_render_sizes: [RenderSize; NUM_REF_FRAMES as usize],
+    pub used_frames: [u8; NUM_REF_FRAMES as usize],
+
+    pub ref_frame_index: [u8; REFS_PER_FRAME as usize],
 
     pub order_hints: Vec<u8>,
     pub order_hint: u8,
+    pub order_hint_bits: u8,
+    pub shifted_order_hints: [u16; NUM_REF_FRAMES as usize],
 
-    pub last_frame_index: Option<usize>,
+    pub last_frame_index: Option<u8>,
     pub prev_frame_id: Option<u8>,
     pub current_frame_id: Option<u8>,
 
@@ -49,13 +54,18 @@ impl DecoderContext {
             ref_frame_type: [FRAME_TYPE::KEY_FRAME; NUM_REF_FRAMES as usize],
             ref_valid: [0; NUM_REF_FRAMES as usize],
             ref_order_hint: [0; NUM_REF_FRAMES as usize],
-            order_hints: [0; REFS_PER_FRAME as usize].to_vec(),
-            order_hint: 0,
             ref_frame_id: [0; NUM_REF_FRAMES as usize],
             ref_frame_sign_bias: [0; NUM_REF_FRAMES as usize],
-
             ref_frame_sizes: [FrameSize::default(); NUM_REF_FRAMES as usize],
             ref_frame_render_sizes: [RenderSize::default(); NUM_REF_FRAMES as usize],
+            used_frames: [0; NUM_REF_FRAMES as usize],
+
+            ref_frame_index: [0; REFS_PER_FRAME as usize],
+
+            order_hints: [0; REFS_PER_FRAME as usize].to_vec(),
+            order_hint: 0,
+            order_hint_bits: 0,
+            shifted_order_hints: [0; NUM_REF_FRAMES as usize],
 
             last_frame_index: None,
             prev_frame_id: None,
@@ -126,9 +136,50 @@ pub fn load_grain_params(frame_to_show_map_idx: u8) -> Result<(), std::io::Error
     Ok(())
 }
 
-pub fn set_frame_refs() -> Result<(), std::io::Error> {
+pub fn set_frame_refs(
+    last_frame_index: u8,
+    gold_frame_index: u8,
+    ctx: &mut DecoderContext,
+) -> Result<(), std::io::Error> {
     log::debug!("[] obu->handlers->set_frame_refs()");
-    todo!("Implement set_frame_refs");
+
+    let sequence_header = ctx.last_sequence_header.clone().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, "No last sequence header")
+    })?;
+
+    ctx.ref_frame_index = [0; REFS_PER_FRAME as usize];
+
+    assert!(last_frame_index < REFS_PER_FRAME);
+    assert!(gold_frame_index < REFS_PER_FRAME);
+    assert!(gold_frame_index as i16 - last_frame_index as i16 >= 0);
+
+    ctx.ref_frame_index[0] = last_frame_index;
+    ctx.ref_frame_index[(gold_frame_index - last_frame_index) as usize] = gold_frame_index;
+
+    ctx.used_frames = [0; NUM_REF_FRAMES as usize];
+    ctx.used_frames[last_frame_index as usize] = 1;
+    ctx.used_frames[gold_frame_index as usize] = 1;
+
+    // IMPL VARS INTO CONTEXT THAT ARE LOCAL [!]
+    let cur_frame_hint = 1 << (ctx.order_hint_bits - 1);
+    let mut shifted_order_hints = [0; NUM_REF_FRAMES as usize];
+
+    for i in 0..NUM_REF_FRAMES as usize {
+        shifted_order_hints[i] =
+            cur_frame_hint + get_relative_dist(ctx.ref_order_hint[i], ctx.order_hint, ctx)?;
+    }
+
+    let last_order_hint = shifted_order_hints[last_frame_index as usize];
+    // [c] It is a requirement of bitstream conformance that lastOrderHint is strictly less than curFrameHint.
+    assert!(last_order_hint < cur_frame_hint);
+
+    let gold_order_hint = shifted_order_hints[gold_frame_index as usize];
+    // [c] It is a requirement of bitstream conformance that goldOrderHint is strictly less than curFrameHint.
+    assert!(gold_order_hint < cur_frame_hint);
+
+    // NEXT UP NEXT [!] impl next steps and impl vars into context that are local
+
+
     Ok(())
 }
 
@@ -221,4 +272,18 @@ pub fn get_qindex(
             Ok(quantization_params.base_q_index)
         }
     }
+}
+
+pub fn get_relative_dist(a: u8, b: u8, ctx: &mut DecoderContext) -> Result<u16, std::io::Error> {
+    let sequence_header = ctx.last_sequence_header.clone().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, "No last sequence header")
+    })?;
+
+    if sequence_header.enable_order_hint == 0 {
+        return Ok(0);
+    }
+
+    let diff: u16 = a as u16 - b as u16;
+    let m: u16 = 1u16 << (ctx.order_hint_bits as u16 - 1u16);
+    Ok((diff & (m - 1)) - (diff & m))
 }

@@ -12,7 +12,7 @@ use crate::{
     obu::{context, sequence_header::TimingInfo},
 };
 
-use super::{context::DecoderContext, sequence_header::SequenceHeader};
+use super::{context::{get_relative_dist, DecoderContext}, sequence_header::SequenceHeader};
 
 // Structs
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -299,8 +299,8 @@ impl FrameHeader {
         if frame_type == FRAME_TYPE::KEY_FRAME && showable_frame != 0 {
             ctx.ref_valid = [0; NUM_REF_FRAMES as usize];
             ctx.ref_order_hint = [0; NUM_REF_FRAMES as usize];
-            for i in (ctx.last_frame_index.unwrap_or_default() + 1)..REFS_PER_FRAME as usize {
-                if ctx.order_hints.len() <= i {
+            for i in (ctx.last_frame_index.unwrap_or_default() + 1)..REFS_PER_FRAME {
+                if ctx.order_hints.len() <= i as usize {
                     ctx.order_hints.push(0);
                 } else {
                     ctx.order_hints[i as usize] = 0;
@@ -308,7 +308,6 @@ impl FrameHeader {
             }
         }
 
-        // next up disable_cdf_update #1
         disable_cdf_update = r.read::<1, u8>()?;
         if sequence_header.seq_force_screen_content_tools == SELECT_SCREEN_CONTENT_TOOLS {
             allow_screen_content_tools = r.read::<1, u8>()?;
@@ -347,7 +346,7 @@ impl FrameHeader {
             frame_size_override_flag = r.read::<1, u8>()?;
         }
 
-        order_hint = r.read_var(sequence_header.order_hint_bits as u32)?;
+        order_hint = r.read_var(ctx.order_hint_bits as u32)?;
         ctx.order_hint = order_hint;
 
         if frame_is_intra != 0
@@ -445,7 +444,7 @@ impl FrameHeader {
                 && sequence_header.enable_order_hint != 0
             {
                 for i in 0..NUM_REF_FRAMES as usize {
-                    ref_order_hint[i] = r.read_var(sequence_header.order_hint_bits as u32)?;
+                    ref_order_hint[i] = r.read_var(ctx.order_hint_bits as u32)?;
                     if ref_order_hint[i] != ctx.ref_order_hint[i] {
                         ctx.ref_valid[i] = 0;
                     }
@@ -469,7 +468,7 @@ impl FrameHeader {
                 if frame_refs_short_signaling != 0 {
                     last_frame_index = Some(r.read::<3, u8>()?);
                     gold_frame_index = Some(r.read::<3, u8>()?);
-                    context::set_frame_refs()?; // [!] TODO
+                    context::set_frame_refs(last_frame_index.clone().unwrap(), gold_frame_index.clone().unwrap(), ctx)?; // [!] TODO
                 }
             }
 
@@ -1244,19 +1243,6 @@ fn tile_log2(blk_size: u32, target: u32) -> u16 {
     k
 }
 
-fn get_relative_dist(a: u8, b: u8, ctx: &mut DecoderContext) -> Result<u16, std::io::Error> {
-    let sequence_header = ctx.last_sequence_header.clone().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::InvalidData, "No last sequence header")
-    })?;
-
-    if sequence_header.enable_order_hint == 0 {
-        return Ok(0);
-    }
-
-    let diff: u16 = a as u16 - b as u16;
-    let m: u16 = 1u16 << (sequence_header.order_hint_bits as u16 - 1u16);
-    Ok((diff & (m - 1)) - (diff & m))
-}
 
 fn read_delta_q<R: bitstream_io::BitRead + ?Sized>(r: &mut R) -> Result<Su, std::io::Error> {
     if r.read::<1, u8>()? != 0 {

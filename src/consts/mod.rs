@@ -217,3 +217,54 @@ pub enum INTERPOLATION_FILTER {
     BILINEAR = 3,
     SWITCHABLE = 4,
 }
+
+
+/*RefFrame[ 0 ] specifies which frame is used to compute the predicted samples for this block:
+
+RefFrame[ 0 ]	Name of ref_frame
+0	INTRA_FRAME
+1	LAST_FRAME
+2	LAST2_FRAME
+3	LAST3_FRAME
+4	GOLDEN_FRAME
+5	BWDREF_FRAME
+6	ALTREF2_FRAME
+7	ALTREF_FRAME
+RefFrame[ 1 ] specifies which additional frame is used in compound prediction:
+
+RefFrame[ 1 ]	Name of ref_frame
+-1	NONE (this block uses single prediction)
+0	INTRA_FRAME (this block uses interintra prediction)
+1	LAST_FRAME
+2	LAST2_FRAME
+3	LAST3_FRAME
+4	GOLDEN_FRAME
+5	BWDREF_FRAME
+6	ALTREF2_FRAME
+7	ALTREF_FRAME */
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[allow(non_camel_case_types)]
+pub enum REF_FRAME {
+    None = -1,
+    INTRA_FRAME = 0,
+    LAST_FRAME = 1,
+    LAST2_FRAME = 2,
+    LAST3_FRAME = 3,
+    GOLDEN_FRAME = 4,
+    BWDREF_FRAME = 5,
+    ALTREF2_FRAME = 6,
+    ALTREF_FRAME = 7,
+}
+
+/*
+Ref_Frame_List[ REFS_PER_FRAME - 2 ] = {
+    LAST2_FRAME, LAST3_FRAME, BWDREF_FRAME, ALTREF2_FRAME, ALTREF_FRAME
+  }
+  */
+pub const REF_FRAME_LIST: [REF_FRAME; 5] = [
+    REF_FRAME::LAST2_FRAME,
+    REF_FRAME::LAST3_FRAME,
+    REF_FRAME::BWDREF_FRAME,
+    REF_FRAME::ALTREF2_FRAME,
+    REF_FRAME::ALTREF_FRAME,
+];

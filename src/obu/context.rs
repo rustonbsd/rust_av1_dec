@@ -1,5 +1,8 @@
 use crate::{
-    consts::{FRAME_TYPE, MAX_SEGMENTS, NUM_REF_FRAMES, REFS_PER_FRAME, SEG_LVL_ALT_Q},
+    consts::{
+        FRAME_TYPE, MAX_SEGMENTS, NUM_REF_FRAMES, REF_FRAME, REF_FRAME_LIST, REFS_PER_FRAME,
+        SEG_LVL_ALT_Q,
+    },
     generics::clip3,
     obu::sequence_header::SequenceHeader,
 };
@@ -25,9 +28,9 @@ pub struct DecoderContext {
     pub ref_frame_sign_bias: [u8; NUM_REF_FRAMES as usize],
     pub ref_frame_sizes: [FrameSize; NUM_REF_FRAMES as usize],
     pub ref_frame_render_sizes: [RenderSize; NUM_REF_FRAMES as usize],
-    pub used_frames: [u8; NUM_REF_FRAMES as usize],
+    pub used_frame: [u8; NUM_REF_FRAMES as usize],
 
-    pub ref_frame_index: [u8; REFS_PER_FRAME as usize],
+    pub ref_frame_index: [i8; REFS_PER_FRAME as usize],
 
     pub order_hints: Vec<u8>,
     pub order_hint: u8,
@@ -58,9 +61,9 @@ impl DecoderContext {
             ref_frame_sign_bias: [0; NUM_REF_FRAMES as usize],
             ref_frame_sizes: [FrameSize::default(); NUM_REF_FRAMES as usize],
             ref_frame_render_sizes: [RenderSize::default(); NUM_REF_FRAMES as usize],
-            used_frames: [0; NUM_REF_FRAMES as usize],
+            used_frame: [0; NUM_REF_FRAMES as usize],
 
-            ref_frame_index: [0; REFS_PER_FRAME as usize],
+            ref_frame_index: [-1; REFS_PER_FRAME as usize],
 
             order_hints: [0; REFS_PER_FRAME as usize].to_vec(),
             order_hint: 0,
@@ -153,12 +156,12 @@ pub fn set_frame_refs(
     assert!(gold_frame_index < REFS_PER_FRAME);
     assert!(gold_frame_index as i16 - last_frame_index as i16 >= 0);
 
-    ctx.ref_frame_index[0] = last_frame_index;
-    ctx.ref_frame_index[(gold_frame_index - last_frame_index) as usize] = gold_frame_index;
+    ctx.ref_frame_index[0] = last_frame_index as i8;
+    ctx.ref_frame_index[(gold_frame_index - last_frame_index) as usize] = gold_frame_index as i8;
 
-    ctx.used_frames = [0; NUM_REF_FRAMES as usize];
-    ctx.used_frames[last_frame_index as usize] = 1;
-    ctx.used_frames[gold_frame_index as usize] = 1;
+    ctx.used_frame = [0; NUM_REF_FRAMES as usize];
+    ctx.used_frame[last_frame_index as usize] = 1;
+    ctx.used_frame[gold_frame_index as usize] = 1;
 
     // IMPL VARS INTO CONTEXT THAT ARE LOCAL [!]
     let cur_frame_hint = 1 << (ctx.order_hint_bits - 1);
@@ -177,8 +180,136 @@ pub fn set_frame_refs(
     // [c] It is a requirement of bitstream conformance that goldOrderHint is strictly less than curFrameHint.
     assert!(gold_order_hint < cur_frame_hint);
 
-    // NEXT UP NEXT [!] impl next steps and impl vars into context that are local
+    // find_latest_backwards( )
+    fn find_latest_backwards(
+        shifted_order_hints: &[u16; NUM_REF_FRAMES as usize],
+        cur_frame_hint: u16,
+        ctx: &mut DecoderContext,
+    ) -> i8 {
+        let candidate: Option<(u16, i8)> = (0..NUM_REF_FRAMES as usize)
+            .filter_map(|i| {
+                if ctx.used_frame[i] == 0 && shifted_order_hints[i] >= cur_frame_hint {
+                    Some((shifted_order_hints[i], i as i8))
+                } else {
+                    None
+                }
+            })
+            .max_by_key(|(hint, index)| (*hint, *index));
 
+        match candidate {
+            Some((_, index)) => index,
+            None => -1,
+        }
+    }
+
+    let _ref = find_latest_backwards(&shifted_order_hints, cur_frame_hint, ctx);
+    if _ref >= 0 {
+        let _index = REF_FRAME::ALTREF_FRAME as u8 - REF_FRAME::LAST_FRAME as u8;
+        ctx.ref_frame_index[_index as usize] = _ref as i8;
+        ctx.used_frame[_ref as usize] = 1;
+    }
+
+    fn find_earliest_backward(
+        shifted_order_hints: &[u16; NUM_REF_FRAMES as usize],
+        cur_frame_hint: u16,
+        ctx: &mut DecoderContext,
+    ) -> i8 {
+        let candidate: Option<(u16, i8)> = (0..NUM_REF_FRAMES as usize)
+            .filter_map(|i| {
+                if ctx.used_frame[i] == 0 && shifted_order_hints[i] >= cur_frame_hint {
+                    Some((shifted_order_hints[i], i as i8))
+                } else {
+                    None
+                }
+            })
+            .min_by_key(|(hint, index)| (*hint, *index));
+
+        match candidate {
+            Some((_, index)) => index,
+            None => -1,
+        }
+    }
+
+    let _ref = find_earliest_backward(&shifted_order_hints, cur_frame_hint, ctx);
+    if _ref >= 0 {
+        let _index = REF_FRAME::BWDREF_FRAME as u8 - REF_FRAME::LAST_FRAME as u8;
+        ctx.ref_frame_index[_index as usize] = _ref as i8;
+        ctx.used_frame[_ref as usize] = 1;
+    }
+
+    let _ref = find_earliest_backward(&shifted_order_hints, cur_frame_hint, ctx);
+    if _ref >= 0 {
+        let _index = REF_FRAME::ALTREF2_FRAME as u8 - REF_FRAME::LAST_FRAME as u8;
+        ctx.ref_frame_index[_index as usize] = _ref as i8;
+        ctx.used_frame[_ref as usize] = 1;
+    }
+
+    fn find_latest_forward(
+        shifted_order_hints: &[u16; NUM_REF_FRAMES as usize],
+        cur_frame_hint: u16,
+        ctx: &mut DecoderContext,
+    ) -> i8 {
+        let candidate: Option<(u16, i8)> = (0..NUM_REF_FRAMES as usize)
+            .filter_map(|i| {
+                if ctx.used_frame[i] == 0 && shifted_order_hints[i] < cur_frame_hint {
+                    Some((shifted_order_hints[i], i as i8))
+                } else {
+                    None
+                }
+            })
+            .max_by_key(|(hint, index)| (*hint, *index));
+
+        match candidate {
+            Some((_, index)) => index,
+            None => -1,
+        }
+    }
+
+    let mut ref_frame;
+    for i in 0..(REFS_PER_FRAME - 2) as usize {
+        ref_frame = REF_FRAME_LIST[i];
+        if ctx.ref_frame_index[REF_FRAME_LIST[i] as usize - REF_FRAME::LAST_FRAME as usize] < 0 {
+            let _ref = find_latest_forward(&shifted_order_hints, cur_frame_hint, ctx);
+            if _ref >= 0 {
+                ctx.ref_frame_index[ref_frame as usize - REF_FRAME::LAST_FRAME as usize] =
+                    _ref as i8;
+                ctx.used_frame[_ref as usize] = 1;
+            }
+        }
+    }
+
+    /*
+    ref = -1
+    for ( i = 0; i < NUM_REF_FRAMES; i++ ) {
+        hint = shiftedOrderHints[ i ]
+        if ( ref < 0 || hint < earliestOrderHint ) {
+            ref = i
+            earliestOrderHint = hint
+        }
+    }
+    for ( i = 0; i < REFS_PER_FRAME; i++ ) {
+        if ( ref_frame_idx[ i ] < 0 ) {
+            ref_frame_idx[ i ] = ref
+        }
+    } */
+
+    let mut _ref: i8 = -1;
+    let mut earliest_order_hint: u16 = 0;
+    for i in 0..NUM_REF_FRAMES as usize {
+        let hint = shifted_order_hints[i];
+        if _ref < 0 || hint < earliest_order_hint {
+            _ref = i as i8;
+            earliest_order_hint = hint;
+        }
+    }
+    for i in 0..REFS_PER_FRAME as usize {
+        if ctx.ref_frame_index[i] < 0 {
+            ctx.ref_frame_index[i] = _ref;
+        }
+    }
+
+    /*
+    Note: Multiple reference frames can share the same value for OrderHint and care needs to be taken to handle this case consistently. The reference implementation uses an equivalent implementation based on sorting the reference frames based on their expected output order, with ties broken based on the reference frame index. */
 
     Ok(())
 }

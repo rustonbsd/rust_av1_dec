@@ -468,7 +468,7 @@ impl FrameHeader {
                 if frame_refs_short_signaling != 0 {
                     last_frame_index = Some(r.read::<3, u8>()?);
                     gold_frame_index = Some(r.read::<3, u8>()?);
-                    context::set_frame_refs(last_frame_index.clone().unwrap(), gold_frame_index.clone().unwrap(), ctx)?; // [!] TODO
+                    context::set_frame_refs(last_frame_index.clone().unwrap(), gold_frame_index.clone().unwrap(), ctx)?;
                 }
             }
 

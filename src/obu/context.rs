@@ -139,16 +139,20 @@ pub fn load_grain_params(frame_to_show_map_idx: u8) -> Result<(), std::io::Error
     Ok(())
 }
 
+/*
+    Spec-Note: 
+    
+    Multiple reference frames can share the same value for OrderHint and care needs to be 
+    taken to handle this case consistently. The reference implementation uses an equivalent 
+    implementation based on sorting the reference frames based on their expected output order, 
+    with ties broken based on the reference frame index. 
+*/
 pub fn set_frame_refs(
     last_frame_index: u8,
     gold_frame_index: u8,
     ctx: &mut DecoderContext,
 ) -> Result<(), std::io::Error> {
     log::debug!("[] obu->handlers->set_frame_refs()");
-
-    let sequence_header = ctx.last_sequence_header.clone().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::InvalidData, "No last sequence header")
-    })?;
 
     ctx.ref_frame_index = [0; REFS_PER_FRAME as usize];
 
@@ -278,21 +282,6 @@ pub fn set_frame_refs(
         }
     }
 
-    /*
-    ref = -1
-    for ( i = 0; i < NUM_REF_FRAMES; i++ ) {
-        hint = shiftedOrderHints[ i ]
-        if ( ref < 0 || hint < earliestOrderHint ) {
-            ref = i
-            earliestOrderHint = hint
-        }
-    }
-    for ( i = 0; i < REFS_PER_FRAME; i++ ) {
-        if ( ref_frame_idx[ i ] < 0 ) {
-            ref_frame_idx[ i ] = ref
-        }
-    } */
-
     let mut _ref: i8 = -1;
     let mut earliest_order_hint: u16 = 0;
     for i in 0..NUM_REF_FRAMES as usize {
@@ -302,14 +291,21 @@ pub fn set_frame_refs(
             earliest_order_hint = hint;
         }
     }
-    for i in 0..REFS_PER_FRAME as usize {
-        if ctx.ref_frame_index[i] < 0 {
-            ctx.ref_frame_index[i] = _ref;
-        }
-    }
 
-    /*
-    Note: Multiple reference frames can share the same value for OrderHint and care needs to be taken to handle this case consistently. The reference implementation uses an equivalent implementation based on sorting the reference frames based on their expected output order, with ties broken based on the reference frame index. */
+    let candidate: Option<(u16, i8)> = (0..NUM_REF_FRAMES as usize)
+            .map(|i| 
+                (shifted_order_hints[i],i as i8)
+            )
+            .max_by_key(|(hint, index)| (*hint, *index));
+
+    let _ref = match candidate {
+        Some((_, index)) => index,
+        None => -1,
+    };
+    
+    ctx.ref_frame_index
+        .iter_mut()
+        .map(|rf| if *rf < 0 { _ref } else { *rf });
 
     Ok(())
 }

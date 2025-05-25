@@ -15,7 +15,7 @@ fn test_parse_sequence_headers() -> io::Result<()> {
     let mut position = 0;
     let mut sequence_headers_found = 0;
     let mut sequence_headers_parsed = 0;
-    let mut ctx = rust_av1_dec::obu::context::DecoderContext::new();
+    let mut ctx = rust_av1_dec::context::DecoderContext::new();
     
     while position < buffer.len() {
         let mut segment_reader = BitReader::endian(&buffer[position..], bitstream_io::BigEndian);
@@ -66,7 +66,7 @@ fn test_sequence_header_values_match_reference() -> io::Result<()> {
     
     let mut position = 0;
     let mut sequence_headers = Vec::new();
-    let mut ctx = rust_av1_dec::obu::context::DecoderContext::new();
+    let mut ctx = rust_av1_dec::context::DecoderContext::new();
     
     while position < buffer.len() {
         let mut segment_reader = BitReader::endian(&buffer[position..], bitstream_io::BigEndian);
@@ -114,7 +114,7 @@ fn test_sequence_header_values_match_reference() -> io::Result<()> {
         assert_eq!(header.seq_force_screen_content_tools, 2);
         assert_eq!(header.seq_force_integer_mv, 2);
         
-        assert_eq!(header.order_hint_bits, 7);
+        assert_eq!(ctx.order_hint_bits, 7);
         assert_eq!(header.enable_superres, 0);
         assert_eq!(header.enable_cdef, 1);
         assert_eq!(header.enable_restoration, 0);

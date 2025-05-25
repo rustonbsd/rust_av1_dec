@@ -8,16 +8,16 @@ use crate::{
         SELECT_INTEGER_MV, SELECT_SCREEN_CONTENT_TOOLS, SUPERRES_DENOM_BITS, SUPERRES_DENOM_MIN,
         SUPERRES_NUM,
     },
+    context::{self, DecoderContext},
     generics::{Ns, Su, clip3},
-    obu::{context, sequence_header::TimingInfo},
+    obu::sequence_header::TimingInfo,
 };
 
-use super::{context::{get_relative_dist, DecoderContext}, sequence_header::SequenceHeader};
+use super::SequenceHeader;
 
 // Structs
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct FrameHeader {
-    pub seen_frame_header: u8,
     pub id_len: Option<u8>,
     pub all_frames: u16,
     pub show_existing_frame: u8,
@@ -141,61 +141,118 @@ impl FrameHeader {
     where
         Self: Sized,
     {
-        let sequence_header = ctx.last_sequence_header.clone().ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, "No last sequence header")
-        })?;
+        fn uncompressed_header<R: bitstream_io::BitRead + ?Sized>(
+            r: &mut R,
+            ctx: &mut DecoderContext,
+        ) -> Result<FrameHeader, std::io::Error> {
+            let sequence_header = ctx.last_sequence_header.clone().ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "No last sequence header")
+            })?;
 
-        let seen_frame_header = 1u8;
-        let id_len = if sequence_header.frame_id_numbers_present_flag != 0 {
-            Some(
-                sequence_header
-                    .additional_frame_id_length_minus_1
-                    .ok_or_else(|| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            "Additional frame id length minus 1 not present",
-                        )
-                    })?
-                    + sequence_header
-                        .delta_frame_id_length_minus_2
+            let id_len = if sequence_header.frame_id_numbers_present_flag != 0 {
+                Some(
+                    sequence_header
+                        .additional_frame_id_length_minus_1
                         .ok_or_else(|| {
                             std::io::Error::new(
                                 std::io::ErrorKind::InvalidData,
-                                "Delta frame id length minus 2 not present",
+                                "Additional frame id length minus 1 not present",
                             )
                         })?
-                    + 3,
-            )
-        } else {
-            None
-        };
+                        + sequence_header
+                            .delta_frame_id_length_minus_2
+                            .ok_or_else(|| {
+                                std::io::Error::new(
+                                    std::io::ErrorKind::InvalidData,
+                                    "Delta frame id length minus 2 not present",
+                                )
+                            })?
+                        + 3,
+                )
+            } else {
+                None
+            };
 
-        let all_frames = (1u16 << NUM_REF_FRAMES) - 1;
-        let show_existing_frame: u8;
-        let frame_type: FRAME_TYPE;
-        let frame_is_intra: u8;
-        let show_frame: u8;
-        let showable_frame: u8;
-        let mut frame_to_show_map_index: u8 = 0;
-        let mut refresh_frame_flag: u16;
-        let mut error_resilient_mode: Option<u8> = None;
+            let all_frames = (1u16 << NUM_REF_FRAMES) - 1;
+            let show_existing_frame: u8;
+            let frame_type: FRAME_TYPE;
+            let frame_is_intra: u8;
+            let show_frame: u8;
+            let showable_frame: u8;
+            let mut frame_to_show_map_index: u8 = 0;
+            let mut refresh_frame_flag: u16;
+            let mut error_resilient_mode: Option<u8> = None;
 
-        // It is a requirement of bitstream conformance
-        // that the number of bits needed to read display_frame_id does not exceed 16.
-        // This is equivalent to the constraint that idLen <= 16.
-        let mut display_frame_id: Option<u16> = None;
-        let mut frame_presentation_time: Option<u32> = None;
+            // It is a requirement of bitstream conformance
+            // that the number of bits needed to read display_frame_id does not exceed 16.
+            // This is equivalent to the constraint that idLen <= 16.
+            let mut display_frame_id: Option<u16> = None;
+            let mut frame_presentation_time: Option<u32> = None;
 
-        if sequence_header.reduced_still_picture_header == 0 {
-            show_existing_frame = r.read::<1, u8>()?;
+            if sequence_header.reduced_still_picture_header == 0 {
+                show_existing_frame = r.read::<1, u8>()?;
 
-            // Repeat same frame
-            if show_existing_frame == 1 {
-                frame_to_show_map_index = r.read::<3, u8>()?;
-                if sequence_header.decoder_model_info_present_flag != 0
+                // Repeat same frame
+                if show_existing_frame == 1 {
+                    frame_to_show_map_index = r.read::<3, u8>()?;
+                    if sequence_header.decoder_model_info_present_flag != 0
+                        && sequence_header
+                            .timing_info
+                            .as_ref()
+                            .ok_or_else(|| {
+                                std::io::Error::new(
+                                    std::io::ErrorKind::InvalidData,
+                                    "Timing info not present",
+                                )
+                            })?
+                            .equal_picture_interval
+                            == 0
+                    {
+                        let frame_presentation_time_bits: u32 = sequence_header
+                            .decoder_model_info
+                            .clone()
+                            .unwrap()
+                            .frame_presentation_delay_length_minus_1
+                            as u32
+                            + 1;
+                        frame_presentation_time = Some(r.read_var(frame_presentation_time_bits)?);
+                    }
+
+                    refresh_frame_flag = 0;
+                    if sequence_header.frame_id_numbers_present_flag != 0 {
+                        display_frame_id = Some(r.read_var(id_len.ok_or_else(|| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                "Id len not present",
+                            )
+                        })? as u32)?);
+                    }
+                    let ref_frame_type = ctx.ref_frame_type;
+                    frame_type = ref_frame_type[frame_to_show_map_index as usize];
+
+                    if frame_type == FRAME_TYPE::KEY_FRAME {
+                        refresh_frame_flag = all_frames;
+                    }
+                    if sequence_header.film_grain_params_present != 0 {
+                        context::frame_header::load_grain_params(frame_to_show_map_index)?;
+                    }
+
+                    return Ok(ctx.last_frame_header.clone().ok_or_else(|| {
+                        std::io::Error::new(std::io::ErrorKind::InvalidData, "No last frame header")
+                    })?);
+                }
+
+                frame_type = FRAME_TYPE::from_reader(r)?;
+                frame_is_intra = (frame_type.eq(&FRAME_TYPE::INTRA_ONLY_FRAME)
+                    || frame_type.eq(&FRAME_TYPE::KEY_FRAME))
+                    as u8;
+
+                show_frame = r.read::<1, u8>()?;
+                if show_frame != 0
+                    && sequence_header.decoder_model_info_present_flag != 0
                     && sequence_header
                         .timing_info
-                        .as_ref()
+                        .clone()
                         .ok_or_else(|| {
                             std::io::Error::new(
                                 std::io::ErrorKind::InvalidData,
@@ -214,479 +271,480 @@ impl FrameHeader {
                         + 1;
                     frame_presentation_time = Some(r.read_var(frame_presentation_time_bits)?);
                 }
-
-                refresh_frame_flag = 0;
-                if sequence_header.frame_id_numbers_present_flag != 0 {
-                    display_frame_id = Some(r.read_var(id_len.ok_or_else(|| {
-                        std::io::Error::new(std::io::ErrorKind::InvalidData, "Id len not present")
-                    })? as u32)?);
-                }
-                let ref_frame_type = ctx.ref_frame_type;
-                frame_type = ref_frame_type[frame_to_show_map_index as usize];
-
-                if frame_type == FRAME_TYPE::KEY_FRAME {
-                    refresh_frame_flag = all_frames;
-                }
-                if sequence_header.film_grain_params_present != 0 {
-                    context::load_grain_params(frame_to_show_map_index)?;
-                }
-
-                return Ok(ctx.last_frame_header.clone().ok_or_else(|| 
-                    std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "No last frame header",
-                    )
-                )?);
-            }
-
-            frame_type = FRAME_TYPE::from_reader(r)?;
-            frame_is_intra = (frame_type.eq(&FRAME_TYPE::INTRA_ONLY_FRAME)
-                || frame_type.eq(&FRAME_TYPE::KEY_FRAME)) as u8;
-
-            show_frame = r.read::<1, u8>()?;
-            if show_frame != 0
-                && sequence_header.decoder_model_info_present_flag != 0
-                && sequence_header
-                    .timing_info
-                    .clone()
-                    .ok_or_else(|| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            "Timing info not present",
-                        )
-                    })?
-                    .equal_picture_interval
-                    == 0
-            {
-                let frame_presentation_time_bits: u32 = sequence_header
-                    .decoder_model_info
-                    .clone()
-                    .unwrap()
-                    .frame_presentation_delay_length_minus_1
-                    as u32
-                    + 1;
-                frame_presentation_time = Some(r.read_var(frame_presentation_time_bits)?);
-            }
-            if show_frame != 0 {
-                showable_frame = (frame_type != FRAME_TYPE::KEY_FRAME) as u8;
-            } else {
-                showable_frame = r.read::<1, u8>()?;
-            }
-            if frame_type == FRAME_TYPE::SWITCH_FRAME
-                || (frame_type == FRAME_TYPE::KEY_FRAME && show_frame != 0)
-            {
-                error_resilient_mode = Some(1);
-            } else {
-                error_resilient_mode = Some(r.read::<1, u8>()?);
-            }
-        } else {
-            show_existing_frame = 0;
-            frame_type = FRAME_TYPE::KEY_FRAME;
-            show_frame = 1;
-            showable_frame = 0;
-            frame_is_intra = 1;
-        }
-
-        let disable_cdf_update: u8;
-        let allow_screen_content_tools: u8;
-        let mut force_integer_mv: u8;
-        let frame_size_override_flag: u8;
-        let order_hint: u8;
-        let primary_ref_frame: u8; // 3 bits
-        let mut buffer_removal_time_present: u8 = 0;
-        let mut buffer_removal_time: Option<Vec<u32>> = None;
-
-        if frame_type == FRAME_TYPE::KEY_FRAME && showable_frame != 0 {
-            ctx.ref_valid = [0; NUM_REF_FRAMES as usize];
-            ctx.ref_order_hint = [0; NUM_REF_FRAMES as usize];
-            for i in (ctx.last_frame_index.unwrap_or_default() + 1)..REFS_PER_FRAME {
-                if ctx.order_hints.len() <= i as usize {
-                    ctx.order_hints.push(0);
+                if show_frame != 0 {
+                    showable_frame = (frame_type != FRAME_TYPE::KEY_FRAME) as u8;
                 } else {
-                    ctx.order_hints[i as usize] = 0;
+                    showable_frame = r.read::<1, u8>()?;
+                }
+                if frame_type == FRAME_TYPE::SWITCH_FRAME
+                    || (frame_type == FRAME_TYPE::KEY_FRAME && show_frame != 0)
+                {
+                    error_resilient_mode = Some(1);
+                } else {
+                    error_resilient_mode = Some(r.read::<1, u8>()?);
+                }
+            } else {
+                show_existing_frame = 0;
+                frame_type = FRAME_TYPE::KEY_FRAME;
+                show_frame = 1;
+                showable_frame = 0;
+                frame_is_intra = 1;
+            }
+
+            let disable_cdf_update: u8;
+            let allow_screen_content_tools: u8;
+            let mut force_integer_mv: u8;
+            let frame_size_override_flag: u8;
+            let order_hint: u8;
+            let primary_ref_frame: u8; // 3 bits
+            let mut buffer_removal_time_present: u8 = 0;
+            let mut buffer_removal_time: Option<Vec<u32>> = None;
+
+            if frame_type == FRAME_TYPE::KEY_FRAME && showable_frame != 0 {
+                ctx.ref_valid = [0; NUM_REF_FRAMES as usize];
+                ctx.ref_order_hint = [0; NUM_REF_FRAMES as usize];
+                for i in (ctx.last_frame_index.unwrap_or_default() + 1)..REFS_PER_FRAME {
+                    if ctx.order_hints.len() <= i as usize {
+                        ctx.order_hints.push(0);
+                    } else {
+                        ctx.order_hints[i as usize] = 0;
+                    }
                 }
             }
-        }
 
-        disable_cdf_update = r.read::<1, u8>()?;
-        if sequence_header.seq_force_screen_content_tools == SELECT_SCREEN_CONTENT_TOOLS {
-            allow_screen_content_tools = r.read::<1, u8>()?;
-        } else {
-            allow_screen_content_tools = sequence_header.seq_force_screen_content_tools;
-        }
-        if allow_screen_content_tools != 0 {
-            if sequence_header.seq_force_integer_mv == SELECT_INTEGER_MV {
-                force_integer_mv = r.read::<1, u8>()?;
+            disable_cdf_update = r.read::<1, u8>()?;
+            if sequence_header.seq_force_screen_content_tools == SELECT_SCREEN_CONTENT_TOOLS {
+                allow_screen_content_tools = r.read::<1, u8>()?;
             } else {
-                force_integer_mv = sequence_header.seq_force_integer_mv;
+                allow_screen_content_tools = sequence_header.seq_force_screen_content_tools;
             }
-        } else {
-            force_integer_mv = 0;
-        }
+            if allow_screen_content_tools != 0 {
+                if sequence_header.seq_force_integer_mv == SELECT_INTEGER_MV {
+                    force_integer_mv = r.read::<1, u8>()?;
+                } else {
+                    force_integer_mv = sequence_header.seq_force_integer_mv;
+                }
+            } else {
+                force_integer_mv = 0;
+            }
 
-        if frame_is_intra != 0 {
-            force_integer_mv = 1;
-        }
+            if frame_is_intra != 0 {
+                force_integer_mv = 1;
+            }
 
-        if sequence_header.frame_id_numbers_present_flag != 0 {
-            ctx.prev_frame_id = ctx.current_frame_id;
-            ctx.current_frame_id = Some(r.read_var(id_len.ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, "Id len not present")
-            })? as u32)?);
-            ctx.mark_ref_frames(id_len.ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, "Id len not present")
-            })?)?;
-        } else {
-            ctx.current_frame_id = Some(0);
-        }
+            if sequence_header.frame_id_numbers_present_flag != 0 {
+                ctx.prev_frame_id = ctx.current_frame_id;
+                ctx.current_frame_id = Some(r.read_var(id_len.ok_or_else(|| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidData, "Id len not present")
+                })? as u32)?);
+                context::frame_header::mark_ref_frames(
+                    id_len.ok_or_else(|| {
+                        std::io::Error::new(std::io::ErrorKind::InvalidData, "Id len not present")
+                    })?,
+                    ctx,
+                )?;
+            } else {
+                ctx.current_frame_id = Some(0);
+            }
 
-        if frame_type == FRAME_TYPE::SWITCH_FRAME {
-            frame_size_override_flag = 0;
-        } else {
-            frame_size_override_flag = r.read::<1, u8>()?;
-        }
+            if frame_type == FRAME_TYPE::SWITCH_FRAME {
+                frame_size_override_flag = 0;
+            } else {
+                frame_size_override_flag = r.read::<1, u8>()?;
+            }
 
-        order_hint = r.read_var(ctx.order_hint_bits as u32)?;
-        ctx.order_hint = order_hint;
+            order_hint = r.read_var(ctx.order_hint_bits as u32)?;
+            ctx.order_hint = order_hint;
 
-        if frame_is_intra != 0
-            || (error_resilient_mode.is_some() && error_resilient_mode.unwrap() != 0)
-        {
-            primary_ref_frame = PRIMARY_REF_NONE;
-        } else {
-            primary_ref_frame = r.read::<3, u8>()?;
-        }
+            if frame_is_intra != 0
+                || (error_resilient_mode.is_some() && error_resilient_mode.unwrap() != 0)
+            {
+                primary_ref_frame = PRIMARY_REF_NONE;
+            } else {
+                primary_ref_frame = r.read::<3, u8>()?;
+            }
 
-        if sequence_header.decoder_model_info_present_flag != 0 {
-            buffer_removal_time_present = r.read::<1, u8>()?;
-            if buffer_removal_time_present != 0 {
-                buffer_removal_time = Some(Vec::new());
-                for op_num in 0..sequence_header.operating_points_cnt as usize {
-                    buffer_removal_time.as_mut().unwrap().push(0);
+            if sequence_header.decoder_model_info_present_flag != 0 {
+                buffer_removal_time_present = r.read::<1, u8>()?;
+                if buffer_removal_time_present != 0 {
+                    buffer_removal_time = Some(Vec::new());
+                    for op_num in 0..sequence_header.operating_points_cnt as usize {
+                        buffer_removal_time.as_mut().unwrap().push(0);
 
-                    if sequence_header.decoder_model_present_for_this_op.len() > op_num
-                        && sequence_header.operating_point_idc.len() > op_num
-                        && sequence_header.decoder_model_present_for_this_op[op_num] != 0
-                    {
-                        let op_pt_idc = sequence_header.operating_point_idc[op_num];
+                        if sequence_header.decoder_model_present_for_this_op.len() > op_num
+                            && sequence_header.operating_point_idc.len() > op_num
+                            && sequence_header.decoder_model_present_for_this_op[op_num] != 0
+                        {
+                            let op_pt_idc = sequence_header.operating_point_idc[op_num];
 
-                        // temporal_id specifies the temporal level of the data contained in the OBU.
-                        // In layer-specific OBUs, when temporal_id is not present it is inferred to be equal to 0.
-                        let temporal_id = if let Some(obu_header) = ctx.obu_header.clone() {
-                            if let Some(extension_header) = obu_header.extension_header {
-                                extension_header.temporal_id
+                            // temporal_id specifies the temporal level of the data contained in the OBU.
+                            // In layer-specific OBUs, when temporal_id is not present it is inferred to be equal to 0.
+                            let temporal_id = if let Some(obu_header) = ctx.obu_header.clone() {
+                                if let Some(extension_header) = obu_header.extension_header {
+                                    extension_header.temporal_id
+                                } else {
+                                    0
+                                }
                             } else {
                                 0
-                            }
-                        } else {
-                            0
-                        };
-                        let in_temporal_layer = (op_pt_idc >> temporal_id) & 1;
+                            };
+                            let in_temporal_layer = (op_pt_idc >> temporal_id) & 1;
 
-                        // spatial_id specifies the spatial level of the data contained in the OBU.
-                        // In layer-specific OBUs, when spatial_id is not present it is inferred to be equal to 0.
-                        let spatial_id = if let Some(obu_header) = ctx.obu_header.clone() {
-                            if let Some(extension_header) = obu_header.extension_header {
-                                extension_header.spatial_id
+                            // spatial_id specifies the spatial level of the data contained in the OBU.
+                            // In layer-specific OBUs, when spatial_id is not present it is inferred to be equal to 0.
+                            let spatial_id = if let Some(obu_header) = ctx.obu_header.clone() {
+                                if let Some(extension_header) = obu_header.extension_header {
+                                    extension_header.spatial_id
+                                } else {
+                                    0
+                                }
                             } else {
                                 0
+                            };
+                            let in_spatial_layer = (op_pt_idc >> (spatial_id + 8)) & 1;
+
+                            if op_pt_idc == 0 || (in_temporal_layer != 0 && in_spatial_layer != 0) {
+                                let n = sequence_header
+                                    .decoder_model_info
+                                    .clone()
+                                    .ok_or_else(|| {
+                                        std::io::Error::new(
+                                            std::io::ErrorKind::InvalidData,
+                                            "Decoder model info not present",
+                                        )
+                                    })?
+                                    .buffer_removal_delay_length_minus_1
+                                    + 1;
+
+                                buffer_removal_time.as_mut().unwrap()[op_num] =
+                                    r.read_var(n as u32)?;
                             }
-                        } else {
-                            0
-                        };
-                        let in_spatial_layer = (op_pt_idc >> (spatial_id + 8)) & 1;
-
-                        if op_pt_idc == 0 || (in_temporal_layer != 0 && in_spatial_layer != 0) {
-                            let n = sequence_header
-                                .decoder_model_info
-                                .clone()
-                                .ok_or_else(|| {
-                                    std::io::Error::new(
-                                        std::io::ErrorKind::InvalidData,
-                                        "Decoder model info not present",
-                                    )
-                                })?
-                                .buffer_removal_delay_length_minus_1
-                                + 1;
-
-                            buffer_removal_time.as_mut().unwrap()[op_num] = r.read_var(n as u32)?;
                         }
                     }
                 }
             }
-        }
 
-        let mut allow_high_precision_mv = 0;
-        let mut use_ref_frame_mvs: u8 = 0;
-        let mut allow_intrabc = 0;
-        let mut ref_order_hint: [u8; NUM_REF_FRAMES as usize] = [0; NUM_REF_FRAMES as usize];
-        let mut frame_refs_short_signaling: u8 = 0;
-        let mut last_frame_index: Option<u8> = None;
-        let mut gold_frame_index: Option<u8> = None;
-        let mut ref_frame_index: [u8; REFS_PER_FRAME as usize] = [0; REFS_PER_FRAME as usize];
-        let mut expected_frame_id: [u16; NUM_REF_FRAMES as usize] = [0; NUM_REF_FRAMES as usize];
-        let frame_size: FrameSize;
-        let render_size: RenderSize;
-        let mut interpolation_filter: Option<INTERPOLATION_FILTER> = None;
-        let mut is_motion_mode_switchable: u8 = 0;
+            let mut allow_high_precision_mv = 0;
+            let mut use_ref_frame_mvs: u8 = 0;
+            let mut allow_intrabc = 0;
+            let mut ref_order_hint: [u8; NUM_REF_FRAMES as usize] = [0; NUM_REF_FRAMES as usize];
+            let mut frame_refs_short_signaling: u8 = 0;
+            let mut last_frame_index: Option<u8> = None;
+            let mut gold_frame_index: Option<u8> = None;
+            let mut ref_frame_index: [u8; REFS_PER_FRAME as usize] = [0; REFS_PER_FRAME as usize];
+            let mut expected_frame_id: [u16; NUM_REF_FRAMES as usize] =
+                [0; NUM_REF_FRAMES as usize];
+            let frame_size: FrameSize;
+            let render_size: RenderSize;
+            let mut interpolation_filter: Option<INTERPOLATION_FILTER> = None;
+            let mut is_motion_mode_switchable: u8 = 0;
 
-        if frame_type == FRAME_TYPE::SWITCH_FRAME
-            || (frame_type == FRAME_TYPE::KEY_FRAME && show_frame != 0)
-        {
-            refresh_frame_flag = all_frames;
-        } else {
-            refresh_frame_flag = r.read::<8, u16>()?;
-        }
-
-        if frame_is_intra == 0 || refresh_frame_flag != all_frames {
-            if error_resilient_mode.is_some()
-                && error_resilient_mode.unwrap() != 0
-                && sequence_header.enable_order_hint != 0
+            if frame_type == FRAME_TYPE::SWITCH_FRAME
+                || (frame_type == FRAME_TYPE::KEY_FRAME && show_frame != 0)
             {
-                for i in 0..NUM_REF_FRAMES as usize {
-                    ref_order_hint[i] = r.read_var(ctx.order_hint_bits as u32)?;
-                    if ref_order_hint[i] != ctx.ref_order_hint[i] {
-                        ctx.ref_valid[i] = 0;
+                refresh_frame_flag = all_frames;
+            } else {
+                refresh_frame_flag = r.read::<8, u16>()?;
+            }
+
+            if frame_is_intra == 0 || refresh_frame_flag != all_frames {
+                if error_resilient_mode.is_some()
+                    && error_resilient_mode.unwrap() != 0
+                    && sequence_header.enable_order_hint != 0
+                {
+                    for i in 0..NUM_REF_FRAMES as usize {
+                        ref_order_hint[i] = r.read_var(ctx.order_hint_bits as u32)?;
+                        if ref_order_hint[i] != ctx.ref_order_hint[i] {
+                            ctx.ref_valid[i] = 0;
+                        }
                     }
                 }
             }
-        }
 
-        if frame_is_intra != 0 {
-            frame_size = FrameSize::frame_size(r, frame_size_override_flag, ctx)?;
-            render_size = RenderSize::render_size(r, &frame_size)?;
-            if allow_screen_content_tools != 0
-                && frame_size.upscaled_width == frame_size.frame_width
-            {
-                allow_intrabc = r.read::<1, u8>()?;
-            }
-        } else {
-            if sequence_header.enable_order_hint == 0 {
-                frame_refs_short_signaling = 0;
-            } else {
-                frame_refs_short_signaling = r.read::<1, u8>()?;
-                if frame_refs_short_signaling != 0 {
-                    last_frame_index = Some(r.read::<3, u8>()?);
-                    gold_frame_index = Some(r.read::<3, u8>()?);
-                    context::set_frame_refs(last_frame_index.clone().unwrap(), gold_frame_index.clone().unwrap(), ctx)?;
-                }
-            }
-
-            let _current_frame_id = ctx.current_frame_id.ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, "No current frame id")
-            })?;
-            let _id_len = id_len.ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, "Id len not present")
-            })?;
-            for i in 0..REFS_PER_FRAME as usize {
-                if frame_refs_short_signaling == 0 {
-                    ref_frame_index[i] = r.read::<3, u8>()?;
-                }
-                if sequence_header.frame_id_numbers_present_flag != 0 {
-                    let n = sequence_header
-                        .delta_frame_id_length_minus_2
-                        .ok_or_else(|| {
-                            std::io::Error::new(
-                                std::io::ErrorKind::InvalidData,
-                                "Delta frame id length minus 2 not present",
-                            )
-                        })?
-                        + 2;
-                    let _delta_frame_id = r.read_var::<u16>(n as u32)? + 1;
-                    expected_frame_id[i] = ((_current_frame_id as u16) + (1 << _id_len as u16)
-                        - _delta_frame_id)
-                        % (1 << _id_len as u16);
-                }
-            }
-
-            if frame_size_override_flag != 0
-                && (error_resilient_mode.is_none() || error_resilient_mode.unwrap() == 0)
-            {
-                let (_frame_size, _render_size) =
-                    frame_size_with_refs(r, ref_frame_index, frame_size_override_flag, ctx)?;
-                frame_size = _frame_size;
-                render_size = _render_size;
-            } else {
+            if frame_is_intra != 0 {
                 frame_size = FrameSize::frame_size(r, frame_size_override_flag, ctx)?;
                 render_size = RenderSize::render_size(r, &frame_size)?;
-            }
-
-            allow_high_precision_mv = if force_integer_mv != 0 {
-                0
+                if allow_screen_content_tools != 0
+                    && frame_size.upscaled_width == frame_size.frame_width
+                {
+                    allow_intrabc = r.read::<1, u8>()?;
+                }
             } else {
-                r.read::<1, u8>()?
-            };
-
-            // read_interpolation_filter( )
-            interpolation_filter = Some(read_interpolation_filter(r)?);
-
-            is_motion_mode_switchable = r.read::<1, u8>()?;
-            use_ref_frame_mvs = if error_resilient_mode.is_some()
-                && error_resilient_mode.unwrap() != 0
-                && sequence_header.enable_ref_frame_mvs == 0
-            {
-                0
-            } else {
-                r.read::<1, u8>()?
-            };
-
-            for i in 0..REFS_PER_FRAME as usize {
-                let ref_frame = ctx.current_frame_id.unwrap_or_default() + i as u8;
-                let hint = ctx.ref_order_hint[ref_frame_index[i] as usize];
-                ctx.order_hints[ref_frame as usize] = hint;
                 if sequence_header.enable_order_hint == 0 {
-                    ctx.ref_frame_sign_bias[ref_frame as usize] = 0;
+                    frame_refs_short_signaling = 0;
                 } else {
-                    ctx.ref_frame_sign_bias[ref_frame as usize] =
-                        if get_relative_dist(hint, order_hint, ctx)? > 0 {
-                            1
-                        } else {
-                            0
-                        };
+                    frame_refs_short_signaling = r.read::<1, u8>()?;
+                    if frame_refs_short_signaling != 0 {
+                        last_frame_index = Some(r.read::<3, u8>()?);
+                        gold_frame_index = Some(r.read::<3, u8>()?);
+                        context::frame_header::set_frame_refs(
+                            last_frame_index.clone().unwrap(),
+                            gold_frame_index.clone().unwrap(),
+                            ctx,
+                        )?;
+                    }
+                }
+
+                let _current_frame_id = ctx.current_frame_id.ok_or_else(|| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidData, "No current frame id")
+                })?;
+                let _id_len = id_len.ok_or_else(|| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidData, "Id len not present")
+                })?;
+                for i in 0..REFS_PER_FRAME as usize {
+                    if frame_refs_short_signaling == 0 {
+                        ref_frame_index[i] = r.read::<3, u8>()?;
+                    }
+                    if sequence_header.frame_id_numbers_present_flag != 0 {
+                        let n = sequence_header
+                            .delta_frame_id_length_minus_2
+                            .ok_or_else(|| {
+                                std::io::Error::new(
+                                    std::io::ErrorKind::InvalidData,
+                                    "Delta frame id length minus 2 not present",
+                                )
+                            })?
+                            + 2;
+                        let _delta_frame_id = r.read_var::<u16>(n as u32)? + 1;
+                        expected_frame_id[i] = ((_current_frame_id as u16) + (1 << _id_len as u16)
+                            - _delta_frame_id)
+                            % (1 << _id_len as u16);
+                    }
+                }
+
+                if frame_size_override_flag != 0
+                    && (error_resilient_mode.is_none() || error_resilient_mode.unwrap() == 0)
+                {
+                    let (_frame_size, _render_size) =
+                        frame_size_with_refs(r, ref_frame_index, frame_size_override_flag, ctx)?;
+                    frame_size = _frame_size;
+                    render_size = _render_size;
+                } else {
+                    frame_size = FrameSize::frame_size(r, frame_size_override_flag, ctx)?;
+                    render_size = RenderSize::render_size(r, &frame_size)?;
+                }
+
+                allow_high_precision_mv = if force_integer_mv != 0 {
+                    0
+                } else {
+                    r.read::<1, u8>()?
+                };
+
+                // read_interpolation_filter( )
+                interpolation_filter = Some(read_interpolation_filter(r)?);
+
+                is_motion_mode_switchable = r.read::<1, u8>()?;
+                use_ref_frame_mvs = if error_resilient_mode.is_some()
+                    && error_resilient_mode.unwrap() != 0
+                    && sequence_header.enable_ref_frame_mvs == 0
+                {
+                    0
+                } else {
+                    r.read::<1, u8>()?
+                };
+
+                for i in 0..REFS_PER_FRAME as usize {
+                    let ref_frame = ctx.current_frame_id.unwrap_or_default() + i as u8;
+                    let hint = ctx.ref_order_hint[ref_frame_index[i] as usize];
+                    ctx.order_hints[ref_frame as usize] = hint;
+                    if sequence_header.enable_order_hint == 0 {
+                        ctx.ref_frame_sign_bias[ref_frame as usize] = 0;
+                    } else {
+                        ctx.ref_frame_sign_bias[ref_frame as usize] =
+                            if context::frame_header::get_relative_dist(hint, order_hint, ctx)? > 0 {
+                                1
+                            } else {
+                                0
+                            };
+                    }
                 }
             }
-        }
 
-        let disable_frame_end_update_cdf: u8;
+            let disable_frame_end_update_cdf: u8;
 
-        if sequence_header.reduced_still_picture_header != 0 || disable_cdf_update != 0 {
-            disable_frame_end_update_cdf = 1;
-        } else {
-            disable_frame_end_update_cdf = r.read::<1, u8>()?;
-        }
-
-        if primary_ref_frame == PRIMARY_REF_NONE {
-            context::init_non_coeff_cdfs()?;    
-            context::setup_past_independence()?;
-        } else {
-            context::load_cdfs(ref_frame_index[primary_ref_frame as usize])?;
-            context::load_previous()?;
-        }
-
-        if use_ref_frame_mvs == 1 {
-            context::motion_field_estimation()?;
-        }
-
-        let tile_info = TileInfo::tile_info(r, &frame_size, ctx)?;
-        let quantization_params = QuantizationParams::quantization_params(r, ctx)?;
-        let segmentation_params =
-            SegmentationParams::segmentation_params(r, primary_ref_frame, ctx)?;
-        let delta_q_params = DeltaQParams::delta_q_params(r, &quantization_params)?;
-        let delta_lf_params = DeltaLFParams::delta_lf_params(r, &delta_q_params, allow_intrabc)?;
-
-        if primary_ref_frame == PRIMARY_REF_NONE {
-            context::init_coeff_cdfs()?; // [!] TODO
-        } else {
-            context::load_previous_segment_ids()?; // [!] TODO
-        }
-
-        let mut coded_lossless: u8 = 1;
-
-        for segment_id in 0..MAX_SEGMENTS {
-            let q_index = context::get_qindex(
-                1,
-                segment_id,
-                &segmentation_params,
-                &quantization_params,
-                &delta_q_params,
-                ctx,
-            )?;
-
-            ctx.lossless_array[segment_id as usize] = if q_index == 0
-                && quantization_params.delta_q_y_dc == Su::zero()
-                && quantization_params.delta_q_u_ac == Su::zero()
-                && quantization_params.delta_q_u_dc == Su::zero()
-                && quantization_params.delta_q_v_ac == Su::zero()
-                && quantization_params.delta_q_v_dc == Su::zero()
-            {
-                1u8
+            if sequence_header.reduced_still_picture_header != 0 || disable_cdf_update != 0 {
+                disable_frame_end_update_cdf = 1;
             } else {
-                0u8
-            };
-
-            if ctx.lossless_array[segment_id as usize] == 0 {
-                coded_lossless = 0;
+                disable_frame_end_update_cdf = r.read::<1, u8>()?;
             }
-            if quantization_params.using_qmatrix != 0 {
-                if ctx.lossless_array[segment_id as usize] != 0 {
-                    ctx.seg_qm_level[0][segment_id as usize] = 15;
-                    ctx.seg_qm_level[1][segment_id as usize] = 15;
-                    ctx.seg_qm_level[2][segment_id as usize] = 15;
+
+            if primary_ref_frame == PRIMARY_REF_NONE {
+                context::frame_header::init_non_coeff_cdfs()?;  // todo
+                context::frame_header::setup_past_independence()?;  // todo
+            } else {
+                context::frame_header::load_cdfs(ref_frame_index[primary_ref_frame as usize])?; // todo
+                context::frame_header::load_previous()?; // todo
+            }
+
+            if use_ref_frame_mvs == 1 {
+                context::frame_header::motion_field_estimation()?;  // todo
+            }
+
+            let tile_info = TileInfo::tile_info(r, &frame_size, ctx)?;
+            let quantization_params = QuantizationParams::quantization_params(r, ctx)?;
+            let segmentation_params =
+                SegmentationParams::segmentation_params(r, primary_ref_frame, ctx)?;
+            let delta_q_params = DeltaQParams::delta_q_params(r, &quantization_params)?;
+            let delta_lf_params =
+                DeltaLFParams::delta_lf_params(r, &delta_q_params, allow_intrabc)?;
+
+            if primary_ref_frame == PRIMARY_REF_NONE {
+                context::frame_header::init_coeff_cdfs()?; // [!] TODO
+            } else {
+                context::frame_header::load_previous_segment_ids()?; // [!] TODO
+            }
+
+            let mut coded_lossless: u8 = 1;
+
+            for segment_id in 0..MAX_SEGMENTS {
+                let q_index = context::frame_header::get_qindex(
+                    1,
+                    segment_id,
+                    &segmentation_params,
+                    &quantization_params,
+                    &delta_q_params,
+                    ctx,
+                )?;
+
+                ctx.lossless_array[segment_id as usize] = if q_index == 0
+                    && quantization_params.delta_q_y_dc == Su::zero()
+                    && quantization_params.delta_q_u_ac == Su::zero()
+                    && quantization_params.delta_q_u_dc == Su::zero()
+                    && quantization_params.delta_q_v_ac == Su::zero()
+                    && quantization_params.delta_q_v_dc == Su::zero()
+                {
+                    1u8
                 } else {
-                    ctx.seg_qm_level[0][segment_id as usize] =
-                        quantization_params.qm_y.ok_or_else(|| {
-                            std::io::Error::new(
-                                std::io::ErrorKind::InvalidData,
-                                "No qm_y in quantization params",
-                            )
-                        })?;
-                    ctx.seg_qm_level[1][segment_id as usize] = quantization_params.qm_u.ok_or_else(|| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            "No qm_u in quantization params",
-                        )
-                    })?;
-                    ctx.seg_qm_level[2][segment_id as usize] = quantization_params.qm_v.ok_or_else(|| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            "No qm_v in quantization params",
-                        )
-                    })?;
+                    0u8
+                };
+
+                if ctx.lossless_array[segment_id as usize] == 0 {
+                    coded_lossless = 0;
+                }
+                if quantization_params.using_qmatrix != 0 {
+                    if ctx.lossless_array[segment_id as usize] != 0 {
+                        ctx.seg_qm_level[0][segment_id as usize] = 15;
+                        ctx.seg_qm_level[1][segment_id as usize] = 15;
+                        ctx.seg_qm_level[2][segment_id as usize] = 15;
+                    } else {
+                        ctx.seg_qm_level[0][segment_id as usize] =
+                            quantization_params.qm_y.ok_or_else(|| {
+                                std::io::Error::new(
+                                    std::io::ErrorKind::InvalidData,
+                                    "No qm_y in quantization params",
+                                )
+                            })?;
+                        ctx.seg_qm_level[1][segment_id as usize] =
+                            quantization_params.qm_u.ok_or_else(|| {
+                                std::io::Error::new(
+                                    std::io::ErrorKind::InvalidData,
+                                    "No qm_u in quantization params",
+                                )
+                            })?;
+                        ctx.seg_qm_level[2][segment_id as usize] =
+                            quantization_params.qm_v.ok_or_else(|| {
+                                std::io::Error::new(
+                                    std::io::ErrorKind::InvalidData,
+                                    "No qm_v in quantization params",
+                                )
+                            })?;
+                    }
                 }
             }
+
+            let all_lossless =
+                if coded_lossless != 0 && frame_size.frame_width == frame_size.upscaled_width {
+                    1u8
+                } else {
+                    0u8
+                };
+
+            // NEXT UP NEXT:
+            /*
+                loop_filter_params( )	 
+                cdef_params( )	 
+                lr_params( )	 
+                read_tx_mode( )	 
+                frame_reference_mode( )	 
+                skip_mode_params( )	 
+                if ( FrameIsIntra ||	 
+                    error_resilient_mode ||	 
+                    !enable_warped_motion )	 
+                    allow_warped_motion = 0	 
+                else	 
+                    allow_warped_motion	f(1)
+                reduced_tx_set	f(1)
+                global_motion_params( )	 
+                film_grain_params( )	 
+            }
+             */ 
+
+            Ok(FrameHeader {
+                id_len,
+                all_frames,
+                show_existing_frame,
+                frame_type,
+                frame_is_intra,
+                show_frame,
+                showable_frame,
+                frame_to_show_map_index,
+                refresh_frame_flag,
+                error_resilient_mode,
+                display_frame_id,
+                frame_presentation_time,
+                disable_cdf_update,
+                allow_screen_content_tools,
+                force_integer_mv,
+                frame_size_override_flag,
+                order_hint,
+                primary_ref_frame,
+                buffer_removal_time_present,
+                buffer_removal_time,
+                allow_high_precision_mv,
+                use_ref_frame_mvs,
+                allow_intrabc,
+                ref_order_hint,
+                frame_refs_short_signaling,
+                last_frame_index,
+                gold_frame_index,
+                ref_frame_index,
+                expected_frame_id,
+                frame_size,
+                render_size,
+                interpolation_filter,
+                is_motion_mode_switchable,
+                disable_frame_end_update_cdf,
+                tile_info,
+                quantization_params,
+                segmentation_params,
+                delta_q_params,
+                delta_lf_params,
+                coded_lossless,
+                all_lossless,
+            })
         }
 
-        let all_lossless = if coded_lossless != 0 && frame_size.frame_width == frame_size.upscaled_width {
-            1u8
+
+        // frame_header_obu( )
+        if ctx.seen_frame_header == 1 {
+            context::frame_header::frame_header_copy(ctx)?;
+
+            return Ok(ctx.last_frame_header.clone().ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "No last frame header")
+            })?);
         } else {
-            0u8
-        };
+            ctx.seen_frame_header = 1;
+        }
 
-        Ok(Self {
-            seen_frame_header,
-            id_len,
-            all_frames,
-            show_existing_frame,
-            frame_type,
-            frame_is_intra,
-            show_frame,
-            showable_frame,
-            frame_to_show_map_index,
-            refresh_frame_flag,
-            error_resilient_mode,
-            display_frame_id,
-            frame_presentation_time,
-            disable_cdf_update,
-            allow_screen_content_tools,
-            force_integer_mv,
-            frame_size_override_flag,
-            order_hint,
-            primary_ref_frame,
-            buffer_removal_time_present,
-            buffer_removal_time,
-            allow_high_precision_mv,
-            use_ref_frame_mvs,
-            allow_intrabc,
-            ref_order_hint,
-            frame_refs_short_signaling,
-            last_frame_index,
-            gold_frame_index,
-            ref_frame_index,
-            expected_frame_id,
-            frame_size,
-            render_size,
-            interpolation_filter,
-            is_motion_mode_switchable,
-            disable_frame_end_update_cdf,
-            tile_info,
-            quantization_params,
-            segmentation_params,
-            delta_q_params,
-            delta_lf_params,
-            coded_lossless,
-            all_lossless,
-        })
-
+        let frame_header = uncompressed_header(r, ctx)?;
+        if frame_header.show_existing_frame != 0 {
+            context::frame_header::decode_frame_wrapup()?;
+            ctx.seen_frame_header = 0;
+        } else {
+            ctx.tile_num = 0;
+            ctx.seen_frame_header = 1;
+        }
+        Ok(frame_header)
     }
 }
 
@@ -1242,7 +1300,6 @@ fn tile_log2(blk_size: u32, target: u32) -> u16 {
     }
     k
 }
-
 
 fn read_delta_q<R: bitstream_io::BitRead + ?Sized>(r: &mut R) -> Result<Su, std::io::Error> {
     if r.read::<1, u8>()? != 0 {

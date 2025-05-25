@@ -2,7 +2,7 @@ use bitstream_io::FromBitStream;
 
 use crate::{consts, generics::Uvlc};
 
-use super::context::DecoderContext;
+use crate::context::DecoderContext;
 
 
 #[derive(Debug, PartialEq, Eq, Clone)]

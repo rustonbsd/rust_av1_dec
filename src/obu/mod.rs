@@ -1,13 +1,11 @@
-mod frame_header;
-pub mod context;
+pub mod frame_header;
 mod sequence_header;
 
 use bitstream_io::FromBitStream;
-use context::DecoderContext;
 use frame_header::FrameHeader;
-use sequence_header::SequenceHeader;
+pub use sequence_header::SequenceHeader;
 
-use crate::{Leb128, consts::OBU_TYPE};
+use crate::{consts::OBU_TYPE, context::DecoderContext, Leb128};
 
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -56,7 +54,7 @@ impl OBU {
         };
 
         let sequence_header = if header.obu_type == OBU_TYPE::OBU_SEQUENCE_HEADER {
-            Some(SequenceHeader::sequence_header_obu(r)?)
+            Some(SequenceHeader::sequence_header_obu(r,ctx)?)
         } else {
             None
         };

@@ -14,7 +14,7 @@ fn test_extract_temporal_delimiter_obus() -> io::Result<()> {
     
     let mut position = 0;
     let mut temporal_delimiters_found = 0;
-    let mut ctx = rust_av1_dec::obu::context::DecoderContext::new();
+    let mut ctx = rust_av1_dec::context::DecoderContext::new();
     
     while position < buffer.len() {
         let mut segment_reader = BitReader::endian(&buffer[position..], bitstream_io::BigEndian);

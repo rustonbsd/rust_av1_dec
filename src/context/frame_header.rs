@@ -1,130 +1,49 @@
-use crate::{
-    consts::{
-        FRAME_TYPE, MAX_SEGMENTS, NUM_REF_FRAMES, REF_FRAME, REF_FRAME_LIST, REFS_PER_FRAME,
-        SEG_LVL_ALT_Q,
-    },
-    generics::clip3,
-    obu::sequence_header::SequenceHeader,
-};
+use crate::consts::{NUM_REF_FRAMES, REFS_PER_FRAME, REF_FRAME, REF_FRAME_LIST, SEG_LVL_ALT_Q};
 
-use super::{
-    ObuHeader,
-    frame_header::{
-        DeltaQParams, FrameHeader, FrameSize, QuantizationParams, RenderSize, SegmentationParams,
-    },
-};
+use crate::context::DecoderContext;
+use crate::generics::clip3;
+use crate::obu::frame_header::{DeltaQParams, QuantizationParams, SegmentationParams};
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct DecoderContext {
-    pub obu_header: Option<ObuHeader>,
-    pub last_sequence_header: Option<SequenceHeader>,
-    pub last_frame_header: Option<FrameHeader>,
+pub fn mark_ref_frames(id_len: u8, ctx: &mut DecoderContext) -> Result<(), std::io::Error> {
+    let diff_len = ctx
+        .last_sequence_header
+        .clone()
+        .ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "No last sequence header")
+        })?
+        .delta_frame_id_length_minus_2
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "No delta frame id length minus 2",
+            )
+        })?
+        + 2;
+    let shifted_diff_len = 1u8 << diff_len;
+    let current_frame_id = ctx.current_frame_id.ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, "No current frame id")
+    })?;
 
-    // Reference Frame Management
-    pub ref_frame_type: [FRAME_TYPE; NUM_REF_FRAMES as usize],
-    pub ref_valid: [u8; NUM_REF_FRAMES as usize],
-    pub ref_order_hint: [u8; NUM_REF_FRAMES as usize],
-    pub ref_frame_id: [u8; NUM_REF_FRAMES as usize],
-    pub ref_frame_sign_bias: [u8; NUM_REF_FRAMES as usize],
-    pub ref_frame_sizes: [FrameSize; NUM_REF_FRAMES as usize],
-    pub ref_frame_render_sizes: [RenderSize; NUM_REF_FRAMES as usize],
-    pub used_frame: [u8; NUM_REF_FRAMES as usize],
-
-    pub ref_frame_index: [i8; REFS_PER_FRAME as usize],
-
-    pub order_hints: Vec<u8>,
-    pub order_hint: u8,
-    pub order_hint_bits: u8,
-    pub shifted_order_hints: [u16; NUM_REF_FRAMES as usize],
-
-    pub last_frame_index: Option<u8>,
-    pub prev_frame_id: Option<u8>,
-    pub current_frame_id: Option<u8>,
-
-    pub current_q_index: u8,
-
-    pub lossless_array: [u8; MAX_SEGMENTS as usize],
-    pub seg_qm_level: [[u8; MAX_SEGMENTS as usize]; 3],
-}
-
-impl DecoderContext {
-    pub fn new() -> Self {
-        Self {
-            obu_header: None,
-            last_sequence_header: None,
-            last_frame_header: None,
-
-            ref_frame_type: [FRAME_TYPE::KEY_FRAME; NUM_REF_FRAMES as usize],
-            ref_valid: [0; NUM_REF_FRAMES as usize],
-            ref_order_hint: [0; NUM_REF_FRAMES as usize],
-            ref_frame_id: [0; NUM_REF_FRAMES as usize],
-            ref_frame_sign_bias: [0; NUM_REF_FRAMES as usize],
-            ref_frame_sizes: [FrameSize::default(); NUM_REF_FRAMES as usize],
-            ref_frame_render_sizes: [RenderSize::default(); NUM_REF_FRAMES as usize],
-            used_frame: [0; NUM_REF_FRAMES as usize],
-
-            ref_frame_index: [-1; REFS_PER_FRAME as usize],
-
-            order_hints: [0; REFS_PER_FRAME as usize].to_vec(),
-            order_hint: 0,
-            order_hint_bits: 0,
-            shifted_order_hints: [0; NUM_REF_FRAMES as usize],
-
-            last_frame_index: None,
-            prev_frame_id: None,
-            current_frame_id: None,
-
-            current_q_index: 0,
-            lossless_array: [0; MAX_SEGMENTS as usize],
-            seg_qm_level: [[0; MAX_SEGMENTS as usize]; 3],
-        }
-    }
-
-    pub fn mark_ref_frames(&mut self, id_len: u8) -> Result<(), std::io::Error> {
-        let diff_len = self
-            .last_sequence_header
-            .clone()
-            .ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, "No last sequence header")
-            })?
-            .delta_frame_id_length_minus_2
-            .ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "No delta frame id length minus 2",
-                )
-            })?
-            + 2;
-        let shifted_diff_len = 1u8 << diff_len;
-        let current_frame_id = self.current_frame_id.ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, "No current frame id")
-        })?;
-
-        for i in 0..NUM_REF_FRAMES {
-            if current_frame_id > shifted_diff_len {
-                if self.ref_frame_id[i as usize] > current_frame_id
-                    || self.ref_frame_id[i as usize] < current_frame_id - shifted_diff_len
-                {
-                    self.ref_valid[i as usize] = 0;
-                }
-            } else {
-                if self.ref_frame_id[i as usize] > current_frame_id
-                    && self.ref_frame_id[i as usize]
-                        < ((1u8 << id_len) + current_frame_id - shifted_diff_len)
-                {
-                    self.ref_valid[i as usize] = 0;
-                }
+    for i in 0..NUM_REF_FRAMES {
+        if current_frame_id > shifted_diff_len {
+            if ctx.ref_frame_id[i as usize] > current_frame_id
+                || ctx.ref_frame_id[i as usize] < current_frame_id - shifted_diff_len
+            {
+                ctx.ref_valid[i as usize] = 0;
+            }
+        } else {
+            if ctx.ref_frame_id[i as usize] > current_frame_id
+                && ctx.ref_frame_id[i as usize]
+                    < ((1u8 << id_len) + current_frame_id - shifted_diff_len)
+            {
+                ctx.ref_valid[i as usize] = 0;
             }
         }
-
-        Ok(())
     }
+
+    Ok(())
 }
 
-pub fn choose_operating_point() -> Result<usize, std::io::Error> {
-    log::debug!("[-] obu->handlers->choose_operating_point() default: 0");
-    Ok(0usize)
-}
 
 // 7.4 Decode frame wrapup process
 pub fn decode_frame_wrapup() -> Result<(), std::io::Error> {
@@ -140,12 +59,12 @@ pub fn load_grain_params(frame_to_show_map_idx: u8) -> Result<(), std::io::Error
 }
 
 /*
-    Spec-Note: 
-    
-    Multiple reference frames can share the same value for OrderHint and care needs to be 
-    taken to handle this case consistently. The reference implementation uses an equivalent 
-    implementation based on sorting the reference frames based on their expected output order, 
-    with ties broken based on the reference frame index. 
+    Spec-Note:
+
+    Multiple reference frames can share the same value for OrderHint and care needs to be
+    taken to handle this case consistently. The reference implementation uses an equivalent
+    implementation based on sorting the reference frames based on their expected output order,
+    with ties broken based on the reference frame index.
 */
 pub fn set_frame_refs(
     last_frame_index: u8,
@@ -293,86 +212,23 @@ pub fn set_frame_refs(
     }
 
     let candidate: Option<(u16, i8)> = (0..NUM_REF_FRAMES as usize)
-            .map(|i| 
-                (shifted_order_hints[i],i as i8)
-            )
-            .max_by_key(|(hint, index)| (*hint, *index));
+        .map(|i| (shifted_order_hints[i], i as i8))
+        .max_by_key(|(hint, index)| (*hint, *index));
 
     let _ref = match candidate {
         Some((_, index)) => index,
         None => -1,
     };
-    
-    ctx.ref_frame_index
+
+    let _ = ctx
+        .ref_frame_index
         .iter_mut()
         .map(|rf| if *rf < 0 { _ref } else { *rf });
 
     Ok(())
 }
 
-pub fn init_non_coeff_cdfs() -> Result<(), std::io::Error> {
-    log::debug!("[] obu->handlers->init_non_coeff_cdfs()");
-    todo!("Implement init_non_coeff_cdfs");
-    Ok(())
-}
 
-pub fn setup_past_independence() -> Result<(), std::io::Error> {
-    log::debug!("[] obu->handlers->setup_past_independence()");
-    todo!("Implement setup_past_independence");
-    Ok(())
-}
-
-pub fn load_cdfs(frame_to_show_map_idx: u8) -> Result<(), std::io::Error> {
-    log::debug!("[] obu->handlers->load_cdfs()");
-    todo!("Implement load_cdfs");
-    Ok(())
-}
-
-pub fn load_previous() -> Result<(), std::io::Error> {
-    log::debug!("[] obu->handlers->load_previous()");
-    todo!("Implement load_previous");
-    Ok(())
-}
-
-pub fn motion_field_estimation() -> Result<(), std::io::Error> {
-    log::debug!("[] obu->handlers->motion_field_estimation()");
-    todo!("Implement motion_field_estimation");
-    Ok(())
-}
-
-pub fn tile_info() -> Result<(), std::io::Error> {
-    log::debug!("[] obu->handlers->tile_info()");
-    todo!("Implement tile_info");
-    Ok(())
-}
-
-pub fn quantization_params() -> Result<(), std::io::Error> {
-    log::debug!("[] obu->handlers->quantization_params()");
-    todo!("Implement quantization_params");
-    Ok(())
-}
-
-pub fn init_coeff_cdfs() -> Result<(), std::io::Error> {
-    log::debug!("[] obu->handlers->init_coeff_cdfs()");
-    todo!("Implement init_coeff_cdfs");
-    Ok(())
-}
-
-pub fn load_previous_segment_ids() -> Result<(), std::io::Error> {
-    log::debug!("[] obu->handlers->load_previous_segment_ids()");
-    todo!("Implement load_previous_segment_ids");
-    Ok(())
-}
-
-pub fn seg_feature_active_idx(idx: u8, feature: u8, seg_params: &SegmentationParams) -> u8 {
-    if seg_params.segmentation_enabled != 0
-        && seg_params.feature_enabled[idx as usize][feature as usize] != 0
-    {
-        1u8
-    } else {
-        0u8
-    }
-}
 
 pub fn get_qindex(
     ignore_delta_q: u8,
@@ -413,4 +269,70 @@ pub fn get_relative_dist(a: u8, b: u8, ctx: &mut DecoderContext) -> Result<u16, 
     let diff: u16 = a as u16 - b as u16;
     let m: u16 = 1u16 << (ctx.order_hint_bits as u16 - 1u16);
     Ok((diff & (m - 1)) - (diff & m))
+}
+
+pub fn init_non_coeff_cdfs() -> Result<(), std::io::Error> {
+    log::debug!("[] obu->handlers->init_non_coeff_cdfs()");
+    todo!("Implement init_non_coeff_cdfs");
+    Ok(())
+}
+
+pub fn setup_past_independence() -> Result<(), std::io::Error> {
+    log::debug!("[] obu->handlers->setup_past_independence()");
+    todo!("Implement setup_past_independence");
+    Ok(())
+}
+
+pub fn load_cdfs(frame_to_show_map_idx: u8) -> Result<(), std::io::Error> {
+    log::debug!("[] obu->handlers->load_cdfs()");
+    todo!("Implement load_cdfs");
+    Ok(())
+}
+
+pub fn load_previous() -> Result<(), std::io::Error> {
+    log::debug!("[] obu->handlers->load_previous()");
+    todo!("Implement load_previous");
+    Ok(())
+}
+
+pub fn frame_header_copy(ctx: &mut DecoderContext) -> Result<(), std::io::Error> {
+    log::debug!("[] obu->handlers->frame_header_copy()");
+    todo!("Implement frame_header_copy");
+    Ok(())
+}
+
+
+
+pub fn motion_field_estimation() -> Result<(), std::io::Error> {
+    log::debug!("[] obu->handlers->motion_field_estimation()");
+    todo!("Implement motion_field_estimation");
+    Ok(())
+}
+
+pub fn tile_info() -> Result<(), std::io::Error> {
+    log::debug!("[] obu->handlers->tile_info()");
+    todo!("Implement tile_info");
+    Ok(())
+}
+
+pub fn init_coeff_cdfs() -> Result<(), std::io::Error> {
+    log::debug!("[] obu->handlers->init_coeff_cdfs()");
+    todo!("Implement init_coeff_cdfs");
+    Ok(())
+}
+
+pub fn load_previous_segment_ids() -> Result<(), std::io::Error> {
+    log::debug!("[] obu->handlers->load_previous_segment_ids()");
+    todo!("Implement load_previous_segment_ids");
+    Ok(())
+}
+
+pub fn seg_feature_active_idx(idx: u8, feature: u8, seg_params: &SegmentationParams) -> u8 {
+    if seg_params.segmentation_enabled != 0
+        && seg_params.feature_enabled[idx as usize][feature as usize] != 0
+    {
+        1u8
+    } else {
+        0u8
+    }
 }

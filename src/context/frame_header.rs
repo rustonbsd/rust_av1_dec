@@ -2,7 +2,7 @@ use crate::consts::{NUM_REF_FRAMES, REFS_PER_FRAME, REF_FRAME, REF_FRAME_LIST, S
 
 use crate::context::DecoderContext;
 use crate::generics::clip3;
-use crate::obu::frame_header::{DeltaQParams, QuantizationParams, SegmentationParams};
+use crate::obu::frame_header::{DeltaQParams, FrameHeader, QuantizationParams, SegmentationParams};
 
 pub fn mark_ref_frames(id_len: u8, ctx: &mut DecoderContext) -> Result<(), std::io::Error> {
     let diff_len = ctx
@@ -71,7 +71,7 @@ pub fn set_frame_refs(
     gold_frame_index: u8,
     ctx: &mut DecoderContext,
 ) -> Result<(), std::io::Error> {
-    log::debug!("[] obu->handlers->set_frame_refs()");
+    log::debug!("[x] obu->handlers->set_frame_refs()");
 
     ctx.ref_frame_index = [0; REFS_PER_FRAME as usize];
 
@@ -295,10 +295,12 @@ pub fn load_previous() -> Result<(), std::io::Error> {
     Ok(())
 }
 
-pub fn frame_header_copy(ctx: &mut DecoderContext) -> Result<(), std::io::Error> {
-    log::debug!("[] obu->handlers->frame_header_copy()");
-    todo!("Implement frame_header_copy");
-    Ok(())
+pub fn frame_header_copy(ctx: &mut DecoderContext) -> Result<FrameHeader, std::io::Error> {
+    log::debug!("[x] obu->handlers->frame_header_copy()");
+    
+    Ok(ctx.last_frame_header.clone().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, "No last frame header")
+    })?)
 }
 
 

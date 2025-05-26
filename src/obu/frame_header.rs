@@ -132,6 +132,16 @@ pub struct DeltaLFParams {
     pub delta_lf_multi: u8,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct LoopFilterParams {
+    loop_filter_level: [u8; 4],
+    loop_filter_ref_deltas: [i8; 8],
+    loop_filter_mode_deltas: [i8; 2],
+    loop_filter_sharpness: u8,
+    loop_filter_delta_enabled: u8,
+    loop_filter_delta_update: u8,
+}
+
 // Implementations
 impl FrameHeader {
     pub fn frame_header_obu<R: bitstream_io::BitRead + ?Sized>(
@@ -551,7 +561,8 @@ impl FrameHeader {
                         ctx.ref_frame_sign_bias[ref_frame as usize] = 0;
                     } else {
                         ctx.ref_frame_sign_bias[ref_frame as usize] =
-                            if context::frame_header::get_relative_dist(hint, order_hint, ctx)? > 0 {
+                            if context::frame_header::get_relative_dist(hint, order_hint, ctx)? > 0
+                            {
                                 1
                             } else {
                                 0
@@ -569,15 +580,15 @@ impl FrameHeader {
             }
 
             if primary_ref_frame == PRIMARY_REF_NONE {
-                context::frame_header::init_non_coeff_cdfs()?;  // todo
-                context::frame_header::setup_past_independence()?;  // todo
+                context::frame_header::init_non_coeff_cdfs()?; // todo
+                context::frame_header::setup_past_independence()?; // todo
             } else {
                 context::frame_header::load_cdfs(ref_frame_index[primary_ref_frame as usize])?; // todo
                 context::frame_header::load_previous()?; // todo
             }
 
             if use_ref_frame_mvs == 1 {
-                context::frame_header::motion_field_estimation()?;  // todo
+                context::frame_header::motion_field_estimation()?; // todo
             }
 
             let tile_info = TileInfo::tile_info(r, &frame_size, ctx)?;
@@ -661,23 +672,23 @@ impl FrameHeader {
 
             // NEXT UP NEXT:
             /*
-                loop_filter_params( )	 
-                cdef_params( )	 
-                lr_params( )	 
-                read_tx_mode( )	 
-                frame_reference_mode( )	 
-                skip_mode_params( )	 
-                if ( FrameIsIntra ||	 
-                    error_resilient_mode ||	 
-                    !enable_warped_motion )	 
-                    allow_warped_motion = 0	 
-                else	 
+                loop_filter_params( )
+                cdef_params( )
+                lr_params( )
+                read_tx_mode( )
+                frame_reference_mode( )
+                skip_mode_params( )
+                if ( FrameIsIntra ||
+                    error_resilient_mode ||
+                    !enable_warped_motion )
+                    allow_warped_motion = 0
+                else
                     allow_warped_motion	f(1)
                 reduced_tx_set	f(1)
-                global_motion_params( )	 
-                film_grain_params( )	 
+                global_motion_params( )
+                film_grain_params( )
             }
-             */ 
+             */
 
             Ok(FrameHeader {
                 id_len,
@@ -724,14 +735,9 @@ impl FrameHeader {
             })
         }
 
-
         // frame_header_obu( )
         if ctx.seen_frame_header == 1 {
-            context::frame_header::frame_header_copy(ctx)?;
-
-            return Ok(ctx.last_frame_header.clone().ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, "No last frame header")
-            })?);
+            return Ok(context::frame_header::frame_header_copy(ctx)?);
         } else {
             ctx.seen_frame_header = 1;
         }
@@ -1189,6 +1195,65 @@ impl DeltaLFParams {
             delta_lf_res,
             delta_lf_multi,
         })
+    }
+}
+
+impl LoopFilterParams {
+    pub fn loop_filter_params<R: bitstream_io::BitRead + ?Sized>(
+        r: &mut R,
+        coded_lossless: u8,
+        allow_intrabc: u8,
+        ctx: &mut DecoderContext,
+    ) -> Result<Self, std::io::Error>
+    where
+        Self: Sized,
+    {
+        if coded_lossless != 0 || allow_intrabc != 0 {
+            return Ok(Self {
+                loop_filter_level: [0u8; 4],
+                loop_filter_ref_deltas: [1, 0, 0, 0, -1, 0, -1, -1],
+                loop_filter_mode_deltas: [0, 0],
+                loop_filter_sharpness: 0,
+                loop_filter_delta_enabled: 0,
+                loop_filter_delta_update: 0,
+            });
+        }
+
+        /*
+            loop_filter_level[ 0 ]	f(6)
+            loop_filter_level[ 1 ]	f(6)
+            if ( NumPlanes > 1 ) {	 
+                if ( loop_filter_level[ 0 ] || loop_filter_level[ 1 ] ) {	 
+                    loop_filter_level[ 2 ]	f(6)
+                    loop_filter_level[ 3 ]	f(6)
+                }	 
+            }	 
+            loop_filter_sharpness	f(3)
+            loop_filter_delta_enabled	f(1)
+            if ( loop_filter_delta_enabled == 1 ) {	 
+                loop_filter_delta_update	f(1)
+                if ( loop_filter_delta_update == 1 ) {	 
+                    for ( i = 0; i < TOTAL_REFS_PER_FRAME; i++ ) {	 
+                        update_ref_delta	f(1)
+                        if ( update_ref_delta == 1 )	 
+                            loop_filter_ref_deltas[ i ]	su(1+6)
+                    }	 
+                    for ( i = 0; i < 2; i++ ) {	 
+                        update_mode_delta	f(1)
+                        if ( update_mode_delta == 1 )	 
+                            loop_filter_mode_deltas[ i ]	su(1+6)
+                    }	 
+                }	 
+            }
+         */
+
+        // NEXT UP NEXT:
+        // -finish loop_filter_params
+        // -back to frame header and impl the bottom of the uncompressed_header
+        // -impl frame_header context functions still missing
+        // -next obu_header
+
+        todo!("Implement loop_filter_params");
     }
 }
 

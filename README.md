@@ -1,4 +1,4 @@
-# AV1 Decoder Implementation Guide (Rust)
+# AV1 Decoder Implementation (Rust)
 
 AV1 decoder written in pure rust
 

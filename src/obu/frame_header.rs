@@ -6,7 +6,7 @@ use crate::{
         MAX_TILE_ROWS, MAX_TILE_WIDTH, NUM_REF_FRAMES, PRIMARY_REF_NONE, REFS_PER_FRAME,
         SEG_LVL_MAX, SEG_LVL_REF_FRAME, SEGMENTATION_FEATURE_BITS, SEGMENTATION_FEATURE_MAX,
         SELECT_INTEGER_MV, SELECT_SCREEN_CONTENT_TOOLS, SUPERRES_DENOM_BITS, SUPERRES_DENOM_MIN,
-        SUPERRES_NUM,
+        SUPERRES_NUM, TOTAL_REFS_PER_FRAME,
     },
     context::{self, DecoderContext},
     generics::{Ns, Su, clip3},
@@ -141,6 +141,11 @@ pub struct LoopFilterParams {
     loop_filter_delta_enabled: u8,
     loop_filter_delta_update: u8,
 }
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct CdefParams {
+}
+
 
 // Implementations
 impl FrameHeader {
@@ -670,9 +675,11 @@ impl FrameHeader {
                     0u8
                 };
 
+            let loop_filter_params =
+                LoopFilterParams::loop_filter_params(r, coded_lossless, allow_intrabc, ctx)?;
+
             // NEXT UP NEXT:
             /*
-                loop_filter_params( )
                 cdef_params( )
                 lr_params( )
                 read_tx_mode( )
@@ -1219,43 +1226,104 @@ impl LoopFilterParams {
             });
         }
 
-        /*
-            loop_filter_level[ 0 ]	f(6)
-            loop_filter_level[ 1 ]	f(6)
-            if ( NumPlanes > 1 ) {	 
-                if ( loop_filter_level[ 0 ] || loop_filter_level[ 1 ] ) {	 
-                    loop_filter_level[ 2 ]	f(6)
-                    loop_filter_level[ 3 ]	f(6)
-                }	 
-            }	 
-            loop_filter_sharpness	f(3)
-            loop_filter_delta_enabled	f(1)
-            if ( loop_filter_delta_enabled == 1 ) {	 
-                loop_filter_delta_update	f(1)
-                if ( loop_filter_delta_update == 1 ) {	 
-                    for ( i = 0; i < TOTAL_REFS_PER_FRAME; i++ ) {	 
-                        update_ref_delta	f(1)
-                        if ( update_ref_delta == 1 )	 
-                            loop_filter_ref_deltas[ i ]	su(1+6)
-                    }	 
-                    for ( i = 0; i < 2; i++ ) {	 
-                        update_mode_delta	f(1)
-                        if ( update_mode_delta == 1 )	 
-                            loop_filter_mode_deltas[ i ]	su(1+6)
-                    }	 
-                }	 
-            }
-         */
+        let sequence_header = ctx.last_sequence_header.clone().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Last sequence header not present",
+            )
+        })?;
 
+        let mut loop_filter_level = [r.read::<6, u8>()?, r.read::<6, u8>()?, 0, 0];
+        if sequence_header.color_config.num_planes > 1 {
+            if loop_filter_level[0] != 0 || loop_filter_level[1] != 0 {
+                loop_filter_level[2] = r.read::<6, u8>()?;
+                loop_filter_level[3] = r.read::<6, u8>()?;
+            }
+        }
+        let loop_filter_sharpness = r.read::<3, u8>()?;
+        let loop_filter_delta_enabled = r.read::<1, u8>()?;
+        let mut loop_filter_delta_update: u8 = 0;
+
+        let mut loop_filter_ref_deltas = [Su::zero(); TOTAL_REFS_PER_FRAME as usize];
+        let mut loop_filter_mode_deltas = [Su::zero(); 2];
+
+        if loop_filter_delta_enabled == 1 {
+            loop_filter_delta_update = r.read::<1, u8>()?;
+            if loop_filter_delta_update == 1 {
+                let _ = loop_filter_ref_deltas.iter_mut().map(|_| {
+                    if let Ok(update_ref_delta) = r.read::<1, u8>() {
+                        if update_ref_delta != 1 {
+                            return Su::zero();
+                        }
+                        let val = Su::su(r, 7);
+                        match val {
+                            Ok(val) => val,
+                            Err(_) => Su::zero(),
+                        }
+                    } else {
+                        Su::zero()
+                    }
+                });
+
+                let _ = loop_filter_mode_deltas.iter_mut().map(|_| {
+                    if let Ok(update_mode_delta) = r.read::<1, u8>() {
+                        if update_mode_delta != 1 {
+                            return Su::zero();
+                        }
+                        let val = Su::su(r, 7);
+                        match val {
+                            Ok(val) => val,
+                            Err(_) => Su::zero(),
+                        }
+                    } else {
+                        Su::zero()
+                    }
+                });
+            }
+        }
+
+
+        Ok(Self {
+            loop_filter_level,
+            loop_filter_ref_deltas: loop_filter_ref_deltas.map(|x| x.value as i8),
+            loop_filter_mode_deltas: loop_filter_mode_deltas.map(|x| x.value as i8),
+            loop_filter_sharpness,
+            loop_filter_delta_enabled,
+            loop_filter_delta_update: loop_filter_delta_update,
+        })
+    }
+}
+
+impl CdefParams {
+    pub fn cdef_params<R: bitstream_io::BitRead + ?Sized>(
+        r: &mut R,
+        coded_lossless: u8,
+        allow_intrabc: u8,
+        enable_cdef: u8,
+        ctx: &mut DecoderContext,
+    ) -> Result<Self, std::io::Error>
+    where
+        Self: Sized,
+    {
         // NEXT UP NEXT:
         // -finish loop_filter_params
         // -back to frame header and impl the bottom of the uncompressed_header
         // -impl frame_header context functions still missing
         // -next obu_header
-
-        todo!("Implement loop_filter_params");
+        /* 
+        cdef_params( ) {	Type
+        if ( CodedLossless || allow_intrabc ||	 
+            !enable_cdef) {	 
+            cdef_bits = 0	 
+            cdef_y_pri_strength[0] = 0	 
+            cdef_y_sec_strength[0] = 0	 
+            cdef_uv_pri_strength[0] = 0	 
+            cdef_uv_sec_strength[0] = 0	 
+            CdefDamping = 3	 
+            return	 
+        } 
+        */
     }
-}
 
 // Functions
 fn frame_size_with_refs<R: bitstream_io::BitRead + ?Sized>(

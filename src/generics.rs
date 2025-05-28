@@ -3,7 +3,7 @@ use std::u32;
 use bitstream_io::FromBitStream;
 
 // 4.10.3 UVLC
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Uvlc {
     pub value: u32,
 }
@@ -33,7 +33,7 @@ impl FromBitStream for Uvlc {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Leb128 {
     pub value: u64,
 }
@@ -78,7 +78,7 @@ impl FromBitStream for Leb128 {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Ns {
     pub value: u32,
 }
@@ -105,7 +105,7 @@ impl Ns {
             return Ok(Self { value: v });
         }
 
-        // extra_bit 
+        // extra_bit
         Ok(Self {
             value: (v << 1) - m + r.read::<1, u32>()?,
         })
@@ -115,15 +115,15 @@ impl Ns {
 /*
 su(n) {	Type
     value	f(n)
-    signMask = 1 << (n - 1)	 
-    if ( value & signMask )	 
-        value = value - 2 * signMask	 
-    return value	 
+    signMask = 1 << (n - 1)
+    if ( value & signMask )
+        value = value - 2 * signMask
+    return value
 }
 */
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Su {
-    pub value: u32,
+    pub value: i32,
 }
 
 impl Su {
@@ -131,8 +131,8 @@ impl Su {
     where
         Self: Sized,
     {
-        let value = r.read_var::<u32>(n)?;
-        let sign_mask = 1 << (n-1);
+        let value = r.read_var::<i32>(n)?;
+        let sign_mask = 1 << (n - 1);
         if value & sign_mask != 0 {
             Ok(Self {
                 value: value - 2 * sign_mask,
@@ -153,7 +153,6 @@ impl Default for Su {
     }
 }
 
-
 pub fn floor_log2(x: u32) -> u32 {
     let mut s = 0;
     let mut mut_x = x;
@@ -164,7 +163,7 @@ pub fn floor_log2(x: u32) -> u32 {
     s - 1
 }
 
-pub fn clip3(min: i16,max: i16, x: i16) -> i16 {
+pub fn clip3(min: i16, max: i16, x: i16) -> i16 {
     if x < min {
         min
     } else if x > max {

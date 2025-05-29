@@ -1,6 +1,6 @@
 use crate::{
     consts::{
-        FRAME_TYPE, MAX_SEGMENTS, NUM_REF_FRAMES, REFS_PER_FRAME, REF_FRAME, REF_FRAME_LIST, SEG_LVL_ALT_Q
+        FRAME_TYPE, MAX_SEGMENTS, NUM_REF_FRAMES, REFS_PER_FRAME, REF_FRAME, REF_FRAME_LIST, REMAP_LR_TYPE, SEG_LVL_ALT_Q
     },
     generics::clip3,
     obu::{frame_header::{DeltaQParams, FrameHeader, FrameSize, QuantizationParams, RenderSize, SegmentationParams}, ObuHeader, SequenceHeader},
@@ -10,12 +10,16 @@ pub mod cdf;
 pub mod sequence_header;
 pub mod frame_header;
 
+use cdf::Cdef;
+
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct DecoderContext {
     pub obu_header: Option<ObuHeader>,
     pub last_sequence_header: Option<SequenceHeader>,
     pub last_frame_header: Option<FrameHeader>,
+
+    pub cdef: Cdef,
 
     // Reference Frame Management
     pub ref_frame_type: [FRAME_TYPE; NUM_REF_FRAMES as usize],
@@ -26,6 +30,8 @@ pub struct DecoderContext {
     pub ref_frame_sizes: [FrameSize; NUM_REF_FRAMES as usize],
     pub ref_frame_render_sizes: [RenderSize; NUM_REF_FRAMES as usize],
     pub used_frame: [u8; NUM_REF_FRAMES as usize],
+
+    pub frame_restoration_type: [REMAP_LR_TYPE; 3],
 
     pub ref_frame_index: [i8; REFS_PER_FRAME as usize],
 
@@ -45,6 +51,7 @@ pub struct DecoderContext {
 
     pub seen_frame_header: u8,
     pub tile_num: u16,
+    pub uses_lr: u8,
 }
 
 impl DecoderContext {
@@ -53,6 +60,7 @@ impl DecoderContext {
             obu_header: None,
             last_sequence_header: None,
             last_frame_header: None,
+            cdef: Cdef::default(),
 
             ref_frame_type: [FRAME_TYPE::KEY_FRAME; NUM_REF_FRAMES as usize],
             ref_valid: [0; NUM_REF_FRAMES as usize],
@@ -62,6 +70,8 @@ impl DecoderContext {
             ref_frame_sizes: [FrameSize::default(); NUM_REF_FRAMES as usize],
             ref_frame_render_sizes: [RenderSize::default(); NUM_REF_FRAMES as usize],
             used_frame: [0; NUM_REF_FRAMES as usize],
+
+            frame_restoration_type: [REMAP_LR_TYPE::RESTORE_NONE; 3],
 
             ref_frame_index: [-1; REFS_PER_FRAME as usize],
 
@@ -80,6 +90,7 @@ impl DecoderContext {
 
             seen_frame_header: 0,
             tile_num: 0,
+            uses_lr: 0,
         }
     }
 }

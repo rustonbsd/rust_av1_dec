@@ -1,6 +1,6 @@
 use bitstream_io::{FromBitStream, ToBitStream};
 
-use super::{CHROMA_SAMPLE_POSITION, COLOR_PRIMARIES, FRAME_TYPE, INTERPOLATION_FILTER, MATRIX_COEFFICIENTS, OBU_TYPE, TRANSFER_CHARACTERISTICS};
+use super::{CHROMA_SAMPLE_POSITION, COLOR_PRIMARIES, FRAME_TYPE, INTERPOLATION_FILTER, MATRIX_COEFFICIENTS, OBU_TYPE, REMAP_LR_TYPE, TRANSFER_CHARACTERISTICS};
 
 impl ToBitStream for OBU_TYPE {
     type Error = std::io::Error;
@@ -175,5 +175,21 @@ impl FromBitStream for INTERPOLATION_FILTER {
             4 => Ok(Self::SWITCHABLE),
             _ => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid INTERPOLATION_FILTER"))
         }
+    }
+}
+
+impl FromBitStream for REMAP_LR_TYPE {
+    type Error = std::io::Error;
+
+    fn from_reader<R: bitstream_io::BitRead + ?Sized>(r: &mut R) -> Result<Self, Self::Error>
+    where
+        Self: Sized {
+            match r.read::<2,u8>()? {
+                0 => Ok(Self::RESTORE_NONE),
+                1 => Ok(Self::RESTORE_SWITCHABLE),
+                2 => Ok(Self::RESTORE_WIENER),
+                3 => Ok(Self::RESTORE_SGRPROJ),
+                _ => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid RESTORE_TYPE"))
+            }
     }
 }

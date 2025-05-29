@@ -269,3 +269,17 @@ pub const REF_FRAME_LIST: [REF_FRAME; 5] = [
     REF_FRAME::ALTREF2_FRAME,
     REF_FRAME::ALTREF_FRAME,
 ];
+
+
+/*Remap_Lr_Type[4] = {
+  RESTORE_NONE, RESTORE_SWITCHABLE, RESTORE_WIENER, RESTORE_SGRPROJ
+}
+ */
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[allow(non_camel_case_types)]
+pub enum REMAP_LR_TYPE {
+    RESTORE_NONE = 0,
+    RESTORE_SWITCHABLE = 1,
+    RESTORE_WIENER = 2,
+    RESTORE_SGRPROJ = 3,
+}

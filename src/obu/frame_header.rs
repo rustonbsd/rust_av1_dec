@@ -2,14 +2,10 @@ use bitstream_io::FromBitStream;
 
 use crate::{
     consts::{
-        FRAME_TYPE, INTERPOLATION_FILTER, MAX_SEGMENTS, MAX_TILE_AREA, MAX_TILE_COLS,
-        MAX_TILE_ROWS, MAX_TILE_WIDTH, NUM_REF_FRAMES, PRIMARY_REF_NONE, REFS_PER_FRAME,
-        SEG_LVL_MAX, SEG_LVL_REF_FRAME, SEGMENTATION_FEATURE_BITS, SEGMENTATION_FEATURE_MAX,
-        SELECT_INTEGER_MV, SELECT_SCREEN_CONTENT_TOOLS, SUPERRES_DENOM_BITS, SUPERRES_DENOM_MIN,
-        SUPERRES_NUM, TOTAL_REFS_PER_FRAME,
+        FRAME_TYPE, INTERPOLATION_FILTER, MAX_SEGMENTS, MAX_TILE_AREA, MAX_TILE_COLS, MAX_TILE_ROWS, MAX_TILE_WIDTH, NUM_REF_FRAMES, PRIMARY_REF_NONE, REFS_PER_FRAME, REMAP_LR_TYPE, SEGMENTATION_FEATURE_BITS, SEGMENTATION_FEATURE_MAX, SEG_LVL_MAX, SEG_LVL_REF_FRAME, SELECT_INTEGER_MV, SELECT_SCREEN_CONTENT_TOOLS, SUPERRES_DENOM_BITS, SUPERRES_DENOM_MIN, SUPERRES_NUM, TOTAL_REFS_PER_FRAME
     },
     context::{self, DecoderContext},
-    generics::{Ns, Su, clip3},
+    generics::{clip3, Ns, Su},
     obu::sequence_header::TimingInfo,
 };
 
@@ -144,8 +140,15 @@ pub struct LoopFilterParams {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CdefParams {
+    pub cdef_bits: u8,
+    pub cdef_y_pri_strength: Vec<u8>,
+    pub cdef_y_sec_strength: Vec<u8>,
+    pub cdef_uv_pri_strength: Vec<u8>,
+    pub cdef_uv_sec_strength: Vec<u8>,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct LrParams {}
 
 // Implementations
 impl FrameHeader {
@@ -678,9 +681,14 @@ impl FrameHeader {
             let loop_filter_params =
                 LoopFilterParams::loop_filter_params(r, coded_lossless, allow_intrabc, ctx)?;
 
+            let cdef_params = CdefParams::cdef_params(r, coded_lossless, allow_intrabc, ctx)?;
+
             // NEXT UP NEXT:
+
+            // -back to frame header and impl the bottom of the uncompressed_header
+            // -impl frame_header context functions still missing
+            // -next obu_header*/
             /*
-                cdef_params( )
                 lr_params( )
                 read_tx_mode( )
                 frame_reference_mode( )
@@ -1282,7 +1290,6 @@ impl LoopFilterParams {
             }
         }
 
-
         Ok(Self {
             loop_filter_level,
             loop_filter_ref_deltas: loop_filter_ref_deltas.map(|x| x.value as i8),
@@ -1299,31 +1306,135 @@ impl CdefParams {
         r: &mut R,
         coded_lossless: u8,
         allow_intrabc: u8,
-        enable_cdef: u8,
         ctx: &mut DecoderContext,
     ) -> Result<Self, std::io::Error>
     where
         Self: Sized,
     {
-        // NEXT UP NEXT:
-        // -finish loop_filter_params
-        // -back to frame header and impl the bottom of the uncompressed_header
-        // -impl frame_header context functions still missing
-        // -next obu_header
-        /* 
-        cdef_params( ) {	Type
-        if ( CodedLossless || allow_intrabc ||	 
-            !enable_cdef) {	 
-            cdef_bits = 0	 
-            cdef_y_pri_strength[0] = 0	 
-            cdef_y_sec_strength[0] = 0	 
-            cdef_uv_pri_strength[0] = 0	 
-            cdef_uv_sec_strength[0] = 0	 
-            CdefDamping = 3	 
-            return	 
-        } 
-        */
+        let sequence_header = ctx.last_sequence_header.clone().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Last sequence header not present",
+            )
+        })?;
+
+        if coded_lossless != 0 || allow_intrabc != 0 || sequence_header.enable_cdef == 0 {
+            ctx.cdef.cdef_damping = 3;
+            return Ok(Self {
+                cdef_bits: 0,
+                cdef_y_pri_strength: vec![0u8],
+                cdef_y_sec_strength: vec![0u8],
+                cdef_uv_pri_strength: vec![0u8],
+                cdef_uv_sec_strength: vec![0u8],
+            });
+        }
+
+        ctx.cdef.cdef_damping = r.read::<2, u8>()? + 3;
+        let cdef_bits = r.read::<2, u8>()?;
+        let mut cdef_y_pri_strength: Vec<u8> = vec![0; 1 << cdef_bits];
+        let mut cdef_y_sec_strength: Vec<u8> = vec![0; 1 << cdef_bits];
+        let mut cdef_uv_pri_strength: Vec<u8> = vec![0; 1 << cdef_bits];
+        let mut cdef_uv_sec_strength: Vec<u8> = vec![0; 1 << cdef_bits];
+
+        for i in 0..(1 << cdef_bits) {
+            cdef_y_pri_strength[i] = r.read::<4, u8>()?;
+            cdef_y_sec_strength[i] = r.read::<2, u8>()?;
+            if cdef_y_sec_strength[i] == 3 {
+                cdef_y_sec_strength[i] += 1;
+            }
+            if sequence_header.color_config.num_planes > 1 {
+                cdef_uv_pri_strength[i] = r.read::<4, u8>()?;
+                cdef_uv_sec_strength[i] = r.read::<2, u8>()?;
+                if cdef_uv_sec_strength[i] == 3 {
+                    cdef_uv_sec_strength[i] += 1;
+                }
+            }
+        }
+
+        Ok(Self {
+            cdef_bits,
+            cdef_y_pri_strength,
+            cdef_y_sec_strength,
+            cdef_uv_pri_strength,
+            cdef_uv_sec_strength,
+        })
     }
+}
+
+impl LrParams {
+    pub fn lr_params<R: bitstream_io::BitRead + ?Sized>(
+        r: &mut R,
+        allow_lossless: u8,
+        allow_intrabc: u8,
+        ctx: &mut DecoderContext,
+    ) -> Result<Self, std::io::Error>
+    where
+        Self: Sized,
+    {
+        let sequence_header = ctx.last_sequence_header.clone().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Last sequence header not present",
+            )
+        })?;
+
+        /*if ( AllLossless || allow_intrabc ||
+            !enable_restoration ) {
+            FrameRestorationType[0] = RESTORE_NONE
+            FrameRestorationType[1] = RESTORE_NONE
+            FrameRestorationType[2] = RESTORE_NONE
+            UsesLr = 0
+            return
+        } */
+        if allow_lossless != 0 || allow_intrabc != 0 || sequence_header.enable_restoration == 0 {
+            ctx.uses_lr = 0;
+            ctx.frame_restoration_type = [REMAP_LR_TYPE::RESTORE_NONE; 3];
+            return Ok(Self {
+
+            })
+        }
+
+        let mut uses_chroma_lr: u8 = 0;
+        let mut frame_restoration_type = [REMAP_LR_TYPE::RESTORE_NONE; 3];
+        
+        for i in 0..sequence_header.color_config.num_planes {
+            frame_restoration_type[i as usize] = REMAP_LR_TYPE::from_reader(r)?;
+            if frame_restoration_type[i as usize] != REMAP_LR_TYPE::RESTORE_NONE {
+                ctx.uses_lr = 1;
+                if i > 0 {
+                    uses_chroma_lr = 1;
+                }
+            }
+        }
+
+        /*
+        if ( UsesLr ) {	 
+            if ( use_128x128_superblock ) {	 
+                lr_unit_shift	f(1)
+                lr_unit_shift++	 
+            } else {	 
+                lr_unit_shift	f(1)
+                if ( lr_unit_shift ) {	 
+                    lr_unit_extra_shift	f(1)
+                    lr_unit_shift += lr_unit_extra_shift	 
+                }	 
+            }	 
+            LoopRestorationSize[ 0 ] = RESTORATION_TILESIZE_MAX >> (2 - lr_unit_shift)	 
+            if ( subsampling_x && subsampling_y && usesChromaLr ) {	 
+                lr_uv_shift	f(1)
+            } else {	 
+                lr_uv_shift = 0	 
+            }	 
+            LoopRestorationSize[ 1 ] = LoopRestorationSize[ 0 ] >> lr_uv_shift	 
+            LoopRestorationSize[ 2 ] = LoopRestorationSize[ 0 ] >> lr_uv_shift	 
+        }
+         */
+        // NEXT UP NEXT
+        
+
+        todo!("Implement lr_params")
+    }
+}
 
 // Functions
 fn frame_size_with_refs<R: bitstream_io::BitRead + ?Sized>(
